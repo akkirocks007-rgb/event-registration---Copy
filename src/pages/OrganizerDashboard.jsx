@@ -9,7 +9,7 @@ import {
 import PageWrapper from '../components/PageWrapper';
 import FormattedDateInput from '../components/FormattedDateInput';
 import { useAuth } from '../hooks/useAuth';
-import { db } from '../firebase';
+import { db, functions, httpsCallable } from '../firebase';
 import {
     collection, onSnapshot, query, addDoc, getDocs,
     serverTimestamp, updateDoc, doc, setDoc, where
@@ -218,21 +218,38 @@ const OrganizerDashboard = () => {
             });
             logAction(db, user, 'CREATE_ADMIN', 'user', docRef.id, { name: newAdmin.name, email: newAdmin.email });
 
-            // Log notification to communication hub
-            await addDoc(collection(db, "communications"), {
-                to: newAdmin.email,
-                phone: newAdmin.phone,
-                name: newAdmin.name,
-                credentials: { email: newAdmin.email, password: tempPassword },
-                type: 'onboarding',
-                channels: ['email', 'sms', 'whatsapp'],
-                status: 'Sent',
-                timestamp: new Date().toISOString()
-            });
+            // Send onboarding communication via Cloud Function
+            const sendOnboarding = httpsCallable(functions, 'sendOnboardingCommunication');
+            let commResult = null;
+            try {
+                const { data } = await sendOnboarding({
+                    to: newAdmin.email,
+                    phone: newAdmin.phone,
+                    name: newAdmin.name,
+                    credentials: { email: newAdmin.email, password: tempPassword },
+                    role: 'admin',
+                    channels: ['email', 'sms']
+                });
+                commResult = data;
+                console.log("🚀 Onboarding communication result:", data);
+            } catch (commErr) {
+                console.error("Onboarding communication failed:", commErr);
+            }
 
             setShowAddAdmin(false);
             setNewAdmin({ name: '', email: '', phone: '', assignedEventIds: [] });
-            alert(`✅ Admin account created! \n\nCredentials sent to ${newAdmin.email} via Email, SMS, and WhatsApp.\nTemp Password: ${tempPassword}`);
+
+            const previewUrl = commResult?.results?.email?.previewUrl;
+            const emailOk = commResult?.results?.email?.success;
+            const smsOk = commResult?.results?.sms?.success;
+            alert(
+                `✅ Admin account created!` +
+                `\n\nEmail: ${emailOk ? '✅ Sent' : '⚠️ Not sent'} ${previewUrl ? '(Test Preview)' : ''}` +
+                `${previewUrl ? '\n🔗 ' + previewUrl : ''}` +
+                `\nSMS: ${smsOk ? '✅ Sent' : '⚠️ Not sent'}` +
+                `\n\nTemp Password: ${tempPassword}` +
+                `${commResult?.mode === 'mock' ? '\n\nℹ️ Running in MOCK mode. Set firebase functions:config:set comms.mode=ethereal to test emails.' : ''}`
+            );
         } catch (e) {
             alert("Error: " + e.message);
         }

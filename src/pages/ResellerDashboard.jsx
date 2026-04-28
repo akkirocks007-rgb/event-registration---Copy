@@ -8,7 +8,7 @@ import {
 import PageWrapper from '../components/PageWrapper';
 import FormattedDateInput from '../components/FormattedDateInput';
 import { useAuth } from '../hooks/useAuth';
-import { db, auth } from '../firebase';
+import { db, auth, functions, httpsCallable } from '../firebase';
 import { sendPasswordResetEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import {
     collection, onSnapshot, query, addDoc, getDocs,
@@ -170,18 +170,23 @@ const ResellerDashboard = () => {
 
             await logAction(db, user, 'CREATE_OWNER', 'user', docRef.id, { name: newOwner.name });
 
-            // Log notification to communication hub
-            await addDoc(collection(db, "communications"), {
-                to: newOwner.ownerEmail,
-                phone: newOwner.phone,
-                name: newOwner.name,
-                credentials: { email: newOwner.ownerEmail, password: tempPassword },
-                type: 'onboarding',
-                channels: ['email', 'sms', 'whatsapp'],
-                status: 'Sent',
-                timestamp: new Date().toISOString(),
-                resellerId: user.uid
-            });
+            // Send onboarding communication via Cloud Function
+            const sendOnboarding = httpsCallable(functions, 'sendOnboardingCommunication');
+            let commResult = null;
+            try {
+                const { data } = await sendOnboarding({
+                    to: newOwner.ownerEmail,
+                    phone: newOwner.phone,
+                    name: newOwner.name,
+                    credentials: { email: newOwner.ownerEmail, password: tempPassword },
+                    role: 'owner',
+                    channels: ['email', 'sms']
+                });
+                commResult = data;
+                console.log("🚀 Onboarding communication result:", data);
+            } catch (commErr) {
+                console.error("Onboarding communication failed:", commErr);
+            }
 
             setShowAddOwner(false);
             setNewOwner({
@@ -191,7 +196,17 @@ const ResellerDashboard = () => {
                 branding: { color: '#FF2222', logo: '' }
             });
 
-            alert(`🚀 Company Owner Provisioned! \n\nCredentials sent via Multi-Channel Onboarding.`);
+            const previewUrl = commResult?.results?.email?.previewUrl;
+            const emailOk = commResult?.results?.email?.success;
+            const smsOk = commResult?.results?.sms?.success;
+            alert(
+                `🚀 Company Owner Provisioned!` +
+                `\n\nEmail: ${emailOk ? '✅ Sent' : '⚠️ Not sent'} ${previewUrl ? '(Test Preview)' : ''}` +
+                `${previewUrl ? '\n🔗 ' + previewUrl : ''}` +
+                `\nSMS: ${smsOk ? '✅ Sent' : '⚠️ Not sent'}` +
+                `\n\nTemp Password: ${tempPassword}` +
+                `${commResult?.mode === 'mock' ? '\n\nℹ️ Running in MOCK mode. Set firebase functions:config:set comms.mode=ethereal to test emails.' : ''}`
+            );
         } catch (e) {
             console.error("Error creating owner:", e);
             alert(`❌ Provisioning Failed: ${e.message}`);

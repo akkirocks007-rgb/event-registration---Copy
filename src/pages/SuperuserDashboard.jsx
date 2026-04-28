@@ -8,7 +8,7 @@ import {
 import PageWrapper from '../components/PageWrapper';
 import FormattedDateInput from '../components/FormattedDateInput';
 import { useAuth } from '../hooks/useAuth';
-import { db, auth } from '../firebase';
+import { db, auth, functions, httpsCallable } from '../firebase';
 import { sendPasswordResetEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import {
     collection, onSnapshot, query, addDoc, getDocs,
@@ -528,28 +528,23 @@ const SuperuserDashboard = () => {
                 createdAt: serverTimestamp()
             });
 
-            // Trigger Multi-Channel Onboarding
-            const notificationData = {
-                to: newReseller.ownerEmail,
-                phone: newReseller.phone,
-                name: newReseller.name,
-                credentials: {
-                    email: newReseller.ownerEmail,
-                    password: tempPassword
-                },
-                timestamp: new Date().toISOString()
-            };
-
-            // Simulate Gateway Triggers (In production, these call Resend/Twilio APIs)
-            console.log("🚀 TRIGGERING MULTI-CHANNEL ONBOARDING:", notificationData);
-
-            // Log to communications collection for tracking
-            await addDoc(collection(db, "communications"), {
-                ...notificationData,
-                type: 'onboarding',
-                channels: ['email', 'sms', 'whatsapp'],
-                status: 'Sent'
-            });
+            // Send onboarding communication via Cloud Function (supports Ethereal, Textbelt, Resend, Mock)
+            const sendOnboarding = httpsCallable(functions, 'sendOnboardingCommunication');
+            let commResult = null;
+            try {
+                const { data } = await sendOnboarding({
+                    to: newReseller.ownerEmail,
+                    phone: newReseller.phone,
+                    name: newReseller.name,
+                    credentials: { email: newReseller.ownerEmail, password: tempPassword },
+                    role: 'reseller',
+                    channels: ['email', 'sms']
+                });
+                commResult = data;
+                console.log("🚀 Onboarding communication result:", data);
+            } catch (commErr) {
+                console.error("Onboarding communication failed:", commErr);
+            }
 
             setShowAddReseller(false);
             setNewReseller({
@@ -561,7 +556,17 @@ const SuperuserDashboard = () => {
                 branding: { color: '#FF2222', logo: '' }
             });
 
-            alert(`🚀 Reseller Provisioned! \n\nCredentials sent to ${notificationData.to} via:\n✅ Email\n✅ SMS\n✅ WhatsApp\n\nTemp Password: ${tempPassword}`);
+            const previewUrl = commResult?.results?.email?.previewUrl;
+            const emailOk = commResult?.results?.email?.success;
+            const smsOk = commResult?.results?.sms?.success;
+            alert(
+                `🚀 Reseller Provisioned!` +
+                `\n\nEmail: ${emailOk ? '✅ Sent' : '⚠️ Not sent'} ${previewUrl ? '(Test Preview)' : ''}` +
+                `${previewUrl ? '\n🔗 ' + previewUrl : ''}` +
+                `\nSMS: ${smsOk ? '✅ Sent' : '⚠️ Not sent'}` +
+                `\n\nTemp Password: ${tempPassword}` +
+                `${commResult?.mode === 'mock' ? '\n\nℹ️ Running in MOCK mode. Set firebase functions:config:set comms.mode=ethereal to test emails.' : ''}`
+            );
             await logAction(db, auth.currentUser, 'CREATE_RESELLER', 'user', newDoc.id, { name: newReseller.name });
         } catch (e) {
             console.error("Error creating reseller:", e);

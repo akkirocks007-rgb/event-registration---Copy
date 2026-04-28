@@ -251,7 +251,8 @@ const Login = () => {
                 const userSnap = await getDocs(userQ);
                 if (!userSnap.empty) {
                     exists = true;
-                    registryData = userSnap.docs[0].data();
+                    const docRef = userSnap.docs[0];
+                    registryData = { id: docRef.id, ...docRef.data() };
                     if (registryData.email) emailToAuth = registryData.email;
                 } else if (!isEmail) {
                     // If mobile used, fetch email from attendees

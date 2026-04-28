@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import { getFunctions, httpsCallable, connectFunctionsEmulator } from "firebase/functions";
 import { getAnalytics } from "firebase/analytics";
 
 // EventPro Firebase Configuration
@@ -28,6 +29,12 @@ export const analytics = app ? getAnalytics(app) : null;
 // Initialize Services
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const functions = getFunctions(app);
+
+// Uncomment for local emulator testing:
+// connectFunctionsEmulator(functions, "localhost", 5001);
+
+export { httpsCallable, connectFunctionsEmulator };
 
 // Explicitly bind the auth instance for helper functions
 export { 

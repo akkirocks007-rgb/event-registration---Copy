@@ -11,7 +11,7 @@ import {
     Building2, Briefcase, RefreshCw, XCircle, CheckCircle2, UserPlus, Send, BarChart3
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
-import { db } from '../firebase';
+import { db, functions, httpsCallable } from '../firebase';
 import {
     collection, onSnapshot, query, addDoc,
     serverTimestamp, where, doc,
@@ -187,21 +187,38 @@ const OwnerDashboard = () => {
 
         await logAction(db, user, 'CREATE_ORGANISER', 'user', docRef.id, { name: newOrganiser.name });
 
-        // Log notification to communication hub
-        await addDoc(collection(db, "communications"), {
-            to: newOrganiser.email,
-            phone: newOrganiser.phone,
-            name: newOrganiser.name,
-            credentials: { email: newOrganiser.email, password: tempPassword },
-            type: 'onboarding',
-            channels: ['email', 'sms', 'whatsapp'],
-            status: 'Sent',
-            timestamp: new Date().toISOString()
-        });
+        // Send onboarding communication via Cloud Function
+        const sendOnboarding = httpsCallable(functions, 'sendOnboardingCommunication');
+        let commResult = null;
+        try {
+            const { data } = await sendOnboarding({
+                to: newOrganiser.email,
+                phone: newOrganiser.phone,
+                name: newOrganiser.name,
+                credentials: { email: newOrganiser.email, password: tempPassword },
+                role: 'organiser',
+                channels: ['email', 'sms']
+            });
+            commResult = data;
+            console.log("🚀 Onboarding communication result:", data);
+        } catch (commErr) {
+            console.error("Onboarding communication failed:", commErr);
+        }
 
         setShowAddOrganiser(false);
         setNewOrganiser({ name: '', email: '', phone: '', company: '', eventLimit: 10, userLimit: 5000 });
-        alert(`✅ Event Organiser account created! \n\nCredentials sent to ${newOrganiser.email} via Email, SMS, and WhatsApp.\nTemp Password: ${tempPassword}`);
+
+        const previewUrl = commResult?.results?.email?.previewUrl;
+        const emailOk = commResult?.results?.email?.success;
+        const smsOk = commResult?.results?.sms?.success;
+        alert(
+            `✅ Event Organiser account created!` +
+            `\n\nEmail: ${emailOk ? '✅ Sent' : '⚠️ Not sent'} ${previewUrl ? '(Test Preview)' : ''}` +
+            `${previewUrl ? '\n🔗 ' + previewUrl : ''}` +
+            `\nSMS: ${smsOk ? '✅ Sent' : '⚠️ Not sent'}` +
+            `\n\nTemp Password: ${tempPassword}` +
+            `${commResult?.mode === 'mock' ? '\n\nℹ️ Running in MOCK mode. Set firebase functions:config:set comms.mode=ethereal to test emails.' : ''}`
+        );
     } catch (e) {
         alert("Error: " + e.message);
     }

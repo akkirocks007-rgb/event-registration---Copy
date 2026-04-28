@@ -244,6 +244,30 @@ async function seed() {
   }
   console.log(`✅ ${admins.length} Admins seeded`);
 
+  // ─── 6b. EXHIBITORS (4 dedicated exhibitor accounts) ───────────────────────
+  const exhibitors = [];
+  for (let i = 0; i < 4; i++) {
+    const ref = createRef('users');
+    const password = `EXB${i + 1}@demo`;
+    const exhibitor = {
+      id: ref.id,
+      role: 'exhibitor',
+      name: `Exhibitor ${i + 1} - ${rand(companies)}`,
+      email: `exhibitor${i + 1}@demo.com`,
+      phone: `+91${randInt(7000000000, 9999999999)}`,
+      company: rand(companies),
+      boothNumber: `A-0${i + 1}`,
+      status: 'Active',
+      password: password,
+      parentId: organisers[0].id,
+      tenantId: reseller.id,
+      createdAt: pastDate(randInt(1, 20))
+    };
+    setDoc(ref, exhibitor);
+    exhibitors.push(exhibitor);
+  }
+  console.log(`✅ ${exhibitors.length} Exhibitors seeded`);
+
   // ─── 7. ATTENDEES (~25-40 per event = ~250 total) ─────────────────────────
   let totalAttendees = 0;
   const attendeeRefs = [];
@@ -360,7 +384,6 @@ async function seed() {
   console.log(`✅ Staff passes seeded`);
 
   // ─── 11. EXHIBITOR LEADS ──────────────────────────────────────────────────
-  const exhibitors = admins.slice(0, 4); // Use first 4 admins as exhibitors
   for (const exhibitor of exhibitors) {
     const leadCount = randInt(5, 12);
     for (let i = 0; i < leadCount; i++) {
@@ -465,6 +488,12 @@ async function seed() {
   console.log('   • Exhibitor: Lead capture list');
   console.log('   • Attendee: 3D badge, agenda, networking');
   console.log('   • Welcome TV: Pair any gate and scan to see welcome messages');
+  console.log('\n🔑 EXHIBITOR DEMO CREDENTIALS (Password Login):');
+  for (const ex of exhibitors) {
+    console.log(`   Email: ${ex.email} | Password: ${ex.password} | Booth: ${ex.boothNumber}`);
+  }
+  console.log('\n🔑 SUPERUSER DEMO CREDENTIALS:');
+  console.log('   Email: akshay@indianroar.com | Password: Admin@123');
   console.log('\n⚠️  Remember: Run firebase deploy if you want hosting/rules updated.');
 }
 
