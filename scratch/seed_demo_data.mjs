@@ -219,12 +219,14 @@ async function seed() {
   for (const org of organisers) {
     for (let i = 0; i < 2; i++) {
       const ref = createRef('users');
+      const password = `ADM-${randInt(100000, 999999)}`;
       const admin = {
         id: ref.id,
         role: 'admin',
         name: `Admin ${i + 1} - ${org.name}`,
         email: `admin${i + 1}.${randInt(100, 999)}@eventpro.demo`,
         phone: `+9196${randInt(10000000, 99999999)}`,
+        password: password,
         assignedEventIds: events.filter(e => e.organizerId === org.id).map(e => e.id),
         status: 'Active',
         parentId: org.id,
@@ -243,6 +245,29 @@ async function seed() {
     }
   }
   console.log(`✅ ${admins.length} Admins seeded`);
+
+  // ─── 6a. SUPERVISORS (1 per organiser = 4) ────────────────────────────────
+  const supervisors = [];
+  for (const org of organisers) {
+    const ref = createRef('users');
+    const password = `SUP-${randInt(100000, 999999)}`;
+    const supervisor = {
+      id: ref.id,
+      role: 'supervisor',
+      name: `Supervisor - ${org.name}`,
+      email: `supervisor.${randInt(100, 999)}@eventpro.demo`,
+      phone: `+9197${randInt(10000000, 99999999)}`,
+      password: password,
+      assignedEventIds: events.filter(e => e.organizerId === org.id).map(e => e.id),
+      status: 'Active',
+      parentId: org.id,
+      tenantId: reseller.id,
+      createdAt: pastDate(randInt(1, 20))
+    };
+    setDoc(ref, supervisor);
+    supervisors.push(supervisor);
+  }
+  console.log(`✅ ${supervisors.length} Supervisors seeded`);
 
   // ─── 6b. EXHIBITORS (4 dedicated exhibitor accounts) ───────────────────────
   const exhibitors = [];

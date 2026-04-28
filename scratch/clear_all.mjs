@@ -46,6 +46,7 @@ const COLLECTIONS = [
   'giveaways',       // giveaway redemptions
   'exhibitors',      // exhibitor directory
   'speakers',        // speaker directory
+  'volunteerSessions', // scanner volunteer custody shifts
 ];
 
 // Sub-collections under _config to preserve vs wipe

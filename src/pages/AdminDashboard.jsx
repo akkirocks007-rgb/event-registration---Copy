@@ -6,10 +6,10 @@ import NotificationCenter from '../components/NotificationCenter';
 import { 
   Settings, Users, User, FileText, MessageSquare, BarChart, ChevronRight, Plus, CreditCard, 
   LayoutDashboard, Palette, Move, Zap, Send, Trash2, PlusCircle, Gift, Package, Trophy, 
-  ChevronDown, Check, ShieldCheck, Download, Filter, UserPlus, Save, RefreshCw,
+  ChevronDown, ChevronUp, Check, ShieldCheck, Download, Filter, UserPlus, Save, RefreshCw,
   Mail, Phone, Lock, Shield, Camera, Image as ImageIcon, Layout, Code, Monitor, ExternalLink,
   Calendar, MapPin, Cpu, Tag, CheckCircle, XCircle, AlertTriangle, TrendingUp, Percent,
-  Clock, BarChart2, BadgePercent, Ticket, ListChecks, Globe, BarChart3,
+  Clock, BarChart2, BadgePercent, Ticket, ListChecks, Globe, BarChart3, Type,
   BadgeCheck, Briefcase, Mic2, HardHat, Building2, Eye, Send as SendIcon, Box, LogOut, Tv
 } from 'lucide-react';
 import ZoneRulesManager from '../components/ZoneRulesManager';
@@ -360,13 +360,33 @@ const AdminDashboard = () => {
   // ── Pending Approvals ──
   const [pendingApprovals, setPendingApprovals] = useState([]);
 
-  const [formFields, setFormFields] = useState([
-    { id: 1, name: 'Full Name', type: 'text', icon: User, required: true },
-    { id: 2, name: 'Professional Email', type: 'email', icon: Mail, required: true },
-    { id: 3, name: 'Face ID / Selfie', type: 'camera', icon: Camera, required: true },
-    { id: 4, name: 'Identity Proof / Visiting Card', type: 'image', icon: ImageIcon, required: true },
-    { id: 5, name: 'Resume / Portfolio', type: 'pdf', icon: FileText, required: false }
-  ]);
+  const iconMap = { User, Mail, Camera, ImageIcon, FileText, Phone, Lock, Calendar, MapPin, Briefcase, Globe, CheckCircle, Building2, Tag, CreditCard, Ticket, LayoutDashboard, Percent, ListChecks, Type };
+  const getIconByName = (name) => iconMap[name] || FileText;
+  const fieldTypeOptions = [
+    { value: 'text', label: 'Short Text', iconName: 'FileText' },
+    { value: 'email', label: 'Email', iconName: 'Mail' },
+    { value: 'phone', label: 'Phone', iconName: 'Phone' },
+    { value: 'number', label: 'Number', iconName: 'Tag' },
+    { value: 'textarea', label: 'Long Text', iconName: 'Type' },
+    { value: 'date', label: 'Date', iconName: 'Calendar' },
+    { value: 'select', label: 'Dropdown', iconName: 'ListChecks' },
+    { value: 'checkbox', label: 'Checkbox', iconName: 'CheckCircle' },
+    { value: 'camera', label: 'Camera / Selfie', iconName: 'Camera' },
+    { value: 'image', label: 'Image Upload', iconName: 'ImageIcon' },
+    { value: 'pdf', label: 'File Upload', iconName: 'FileText' },
+  ];
+
+  const defaultFormFields = [
+    { id: 1, name: 'Full Name', type: 'text', iconName: 'User', required: true, ticketIds: ['all'] },
+    { id: 2, name: 'Professional Email', type: 'email', iconName: 'Mail', required: true, ticketIds: ['all'] },
+    { id: 3, name: 'Face ID / Selfie', type: 'camera', iconName: 'Camera', required: true, ticketIds: ['all'] },
+    { id: 4, name: 'Identity Proof / Visiting Card', type: 'image', iconName: 'ImageIcon', required: true, ticketIds: ['all'] },
+    { id: 5, name: 'Resume / Portfolio', type: 'pdf', iconName: 'FileText', required: false, ticketIds: ['all'] }
+  ];
+  const [formFields, setFormFields] = useState(defaultFormFields);
+  const [showFieldModal, setShowFieldModal] = useState(false);
+  const [editingFieldId, setEditingFieldId] = useState(null);
+  const [newField, setNewField] = useState({ name: '', type: 'text', iconName: 'FileText', required: false, ticketIds: ['all'] });
 
   const approveGuest = (id) => setPendingApprovals(prev => prev.map(p => p.id === id ? { ...p, status: 'approved' } : p));
   const rejectGuest  = (id) => setPendingApprovals(prev => prev.map(p => p.id === id ? { ...p, status: 'rejected' } : p));
@@ -406,10 +426,92 @@ const AdminDashboard = () => {
     persistTickets(next);
   };
 
+  // Persist form fields to the selected event document.
+  const saveFormFields = async (next) => {
+    if (!selectedEventId) return;
+    try {
+      const serializable = next.map(f => ({ ...f, iconName: f.iconName || 'FileText' }));
+      await updateDoc(doc(db, "events", selectedEventId), { formFields: serializable });
+      setMyEvents(prev => prev.map(e => e.id === selectedEventId ? { ...e, formFields: serializable } : e));
+      setEventData(prev => prev ? { ...prev, formFields: serializable } : prev);
+    } catch (err) {
+      console.error("Failed to save form fields:", err);
+      alert("Could not save form fields: " + err.message);
+    }
+  };
+
+  const addFormField = () => {
+    if (!newField.name.trim()) return;
+    const typeOpt = fieldTypeOptions.find(t => t.value === newField.type);
+    const field = {
+      id: Date.now(),
+      name: newField.name.trim(),
+      type: newField.type,
+      iconName: newField.iconName || (typeOpt ? typeOpt.iconName : 'FileText'),
+      required: !!newField.required,
+      ticketIds: newField.ticketIds || ['all'],
+      aiExtract: newField.aiExtract || []
+    };
+    const next = editingFieldId
+      ? formFields.map(f => f.id === editingFieldId ? { ...field, id: editingFieldId } : f)
+      : [...formFields, field];
+    setFormFields(next);
+    saveFormFields(next);
+    setShowFieldModal(false);
+    setEditingFieldId(null);
+    setNewField({ name: '', type: 'text', iconName: 'FileText', required: false, ticketIds: ['all'] });
+  };
+
+  const deleteFormField = (id) => {
+    const next = formFields.filter(f => f.id !== id);
+    setFormFields(next);
+    saveFormFields(next);
+  };
+
+  const moveField = (index, direction) => {
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === formFields.length - 1) return;
+    const next = [...formFields];
+    const swapIdx = direction === 'up' ? index - 1 : index + 1;
+    [next[index], next[swapIdx]] = [next[swapIdx], next[index]];
+    setFormFields(next);
+    saveFormFields(next);
+  };
+
+  const openEditField = (field) => {
+    setEditingFieldId(field.id);
+    setNewField({
+      name: field.name,
+      type: field.type,
+      iconName: field.iconName || 'FileText',
+      required: !!field.required,
+      ticketIds: field.ticketIds || ['all'],
+      aiExtract: field.aiExtract || []
+    });
+    setShowFieldModal(true);
+  };
+
+  const openAddField = () => {
+    setEditingFieldId(null);
+    setNewField({ name: '', type: 'text', iconName: 'FileText', required: false, ticketIds: ['all'] });
+    setShowFieldModal(true);
+  };
+
   // Load tickets for the currently selected event.
   useEffect(() => {
     if (!eventData) { setTickets([]); return; }
     setTickets(Array.isArray(eventData.ticketTypes) ? eventData.ticketTypes : []);
+  }, [eventData]);
+
+  // Load form fields for the currently selected event.
+  useEffect(() => {
+    if (!eventData) { setFormFields(defaultFormFields); return; }
+    const loaded = Array.isArray(eventData.formFields) ? eventData.formFields : [];
+    if (loaded.length > 0) {
+      setFormFields(loaded.map(f => ({ ...f, iconName: f.iconName || 'FileText' })));
+    } else {
+      setFormFields(defaultFormFields);
+    }
   }, [eventData]);
 
   const [categoryTypeConfig, setCategoryTypeConfig] = useState({
@@ -1494,91 +1596,138 @@ const AdminDashboard = () => {
               <>
                 <div className="col-span-8 space-y-4">
                   <div className="glass-panel p-6">
-                    <h3 className="text-lg font-semibold mb-6 flex justify-between items-center text-white">
-                      Registration Form Structure
-                      <button 
-                        onClick={() => { 
-                          const name = prompt('Field label?'); 
-                          if(name) {
-                            setFormFields([...formFields, { id: Date.now(), name, type: 'text', icon: FileText, required: false }]);
-                          }
-                        }} 
-                        className="text-primary text-sm flex items-center gap-1 hover:underline"
-                      >
-                        <Plus className="w-4 h-4" /> Add Field
-                      </button>
-                    </h3>
-                    
-                    <div className="space-y-3">
-                      {formFields.map((field, i) => (
-                        <motion.div 
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: i * 0.1 }}
-                          key={field.name} 
-                          className="p-4 bg-white/5 border border-white/10 rounded-xl group hover:border-primary/30 transition-all"
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-lg font-semibold text-white">Registration Form Structure</h3>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => saveFormFields(formFields)}
+                          className="px-3 py-1.5 bg-primary/20 text-primary text-xs font-bold rounded-lg hover:bg-primary/30 transition-colors flex items-center gap-1"
                         >
-                          <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-4">
+                          <Save className="w-3.5 h-3.5" /> Save
+                        </button>
+                        <button
+                          onClick={openAddField}
+                          className="text-primary text-sm flex items-center gap-1 hover:underline"
+                        >
+                          <Plus className="w-4 h-4" /> Add Field
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {formFields.map((field, i) => {
+                        const FieldIcon = getIconByName(field.iconName);
+                        const typeLabel = fieldTypeOptions.find(t => t.value === field.type)?.label || field.type;
+                        return (
+                          <motion.div
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.05 }}
+                            key={field.id}
+                            className="p-4 bg-white/5 border border-white/10 rounded-xl group hover:border-primary/30 transition-all"
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-4">
                                 <div className="w-8 h-8 rounded bg-zinc-800 flex items-center justify-center text-zinc-500">
-                                    <field.icon className="w-4 h-4" />
+                                  <FieldIcon className="w-4 h-4" />
                                 </div>
                                 <div>
-                                    <span className="font-bold text-white block">{field.name}</span>
-                                    <span className="text-[10px] text-zinc-400 uppercase font-black tracking-widest">{field.type} mode</span>
+                                  <span className="font-bold text-white block">{field.name}</span>
+                                  <span className="text-[10px] text-zinc-400 uppercase font-black tracking-widest">{typeLabel}</span>
                                 </div>
-                            </div>
-                            <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                               {field.type === 'camera' && (
-                                 <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded font-bold">FRONT/BACK ENABLED</span>
-                               )}
-                                <span className="text-xs text-zinc-500 bg-white/5 px-2 py-1 rounded">Required</span>
-                                <button className="p-1.5 hover:bg-white/10 rounded text-zinc-400"><Settings className="w-4 h-4" /></button>
-                                <button 
-                                  onClick={() => setFormFields(formFields.filter(f => f.id !== field.id))}
+                              </div>
+                              <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => moveField(i, 'up')}
+                                  disabled={i === 0}
+                                  className="p-1.5 hover:bg-white/10 rounded text-zinc-400 disabled:opacity-30"
+                                  title="Move up"
+                                >
+                                  <ChevronUp className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => moveField(i, 'down')}
+                                  disabled={i === formFields.length - 1}
+                                  className="p-1.5 hover:bg-white/10 rounded text-zinc-400 disabled:opacity-30"
+                                  title="Move down"
+                                >
+                                  <ChevronDown className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => openEditField(field)}
+                                  className="p-1.5 hover:bg-white/10 rounded text-zinc-400"
+                                  title="Edit field"
+                                >
+                                  <Settings className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => deleteFormField(field.id)}
                                   className="p-1.5 hover:bg-red-500/10 rounded text-red-400"
+                                  title="Delete field"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex items-center gap-4 pl-12">
-                             <div className="flex-1">
+                            <div className="flex items-center gap-4 pl-12">
+                              <div className="flex-1">
                                 <p className="text-[10px] font-bold text-zinc-600 uppercase mb-1">Assigned To Ticket</p>
-                                <select className="w-full bg-transparent border-none text-xs text-primary font-bold p-0 focus:ring-0 cursor-pointer">
-                                    <option className="bg-bg-dark">All Tickets</option>
-                                    <option className="bg-bg-dark">General Delegate</option>
-                                    <option className="bg-bg-dark">VIP Pass</option>
-                                    <option className="bg-bg-dark">Speaker RSVP</option>
+                                <select
+                                  className="w-full bg-transparent border-none text-xs text-primary font-bold p-0 focus:ring-0 cursor-pointer"
+                                  value={field.ticketIds?.[0] || 'all'}
+                                  onChange={(e) => {
+                                    const next = formFields.map(f => f.id === field.id ? { ...f, ticketIds: [e.target.value] } : f);
+                                    setFormFields(next);
+                                    saveFormFields(next);
+                                  }}
+                                >
+                                  <option className="bg-bg-dark" value="all">All Tickets</option>
+                                  {tickets.map(t => (
+                                    <option key={t.id} className="bg-bg-dark" value={t.id}>{t.name}</option>
+                                  ))}
                                 </select>
-                             </div>
-                             {field.type === 'image' && (
+                              </div>
+                              <div className="flex-1">
+                                <p className="text-[10px] font-bold text-zinc-600 uppercase mb-1">Required</p>
+                                <button
+                                  onClick={() => {
+                                    const next = formFields.map(f => f.id === field.id ? { ...f, required: !f.required } : f);
+                                    setFormFields(next);
+                                    saveFormFields(next);
+                                  }}
+                                  className={`text-xs px-2 py-1 rounded font-bold transition-colors ${field.required ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-zinc-500'}`}
+                                >
+                                  {field.required ? 'Required' : 'Optional'}
+                                </button>
+                              </div>
+                              {field.type === 'image' && (
                                 <div className="flex-1 border-l border-white/5 pl-4 ml-4">
-                                    <p className="text-[10px] font-bold text-indigo-400 uppercase mb-1 flex items-center gap-1">
-                                        <Cpu className="w-3 h-3" /> AI extraction config
-                                    </p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {['Name', 'Email', 'Phone', 'Company', 'Designation'].map(data => (
-                                            <button key={data} className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-[9px] font-bold text-indigo-400 rounded hover:bg-indigo-500/20 transition-all uppercase">
-                                                {data}
-                                            </button>
-                                        ))}
-                                        <div className="w-full mt-2 flex items-center gap-2">
-                                            <div className="w-8 h-4 bg-primary/20 rounded-full relative overflow-hidden">
-                                                <div className="w-3 h-3 bg-primary rounded-full absolute right-0.5 top-0.5 shadow-[0_0_10px_rgba(84,34,255,0.8)]"></div>
-                                            </div>
-                                            <span className="text-[8px] font-bold text-white uppercase tracking-tighter">Dual-Side Enabled</span>
-                                        </div>
-                                    </div>
+                                  <p className="text-[10px] font-bold text-indigo-400 uppercase mb-1 flex items-center gap-1">
+                                    <Cpu className="w-3 h-3" /> AI extraction
+                                  </p>
+                                  <div className="flex flex-wrap gap-1">
+                                    {['Name', 'Email', 'Phone', 'Company', 'Designation'].map(data => (
+                                      <button
+                                        key={data}
+                                        onClick={() => {
+                                          const current = field.aiExtract || [];
+                                          const nextArr = current.includes(data) ? current.filter(d => d !== data) : [...current, data];
+                                          const next = formFields.map(f => f.id === field.id ? { ...f, aiExtract: nextArr } : f);
+                                          setFormFields(next);
+                                          saveFormFields(next);
+                                        }}
+                                        className={`px-2 py-0.5 border text-[9px] font-bold rounded transition-all uppercase ${(field.aiExtract || []).includes(data) ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300' : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20'}`}
+                                      >
+                                        {data}
+                                      </button>
+                                    ))}
+                                  </div>
                                 </div>
-                             )}
-                             <div className="flex-1">
-                                <p className="text-[10px] font-bold text-zinc-600 uppercase mb-1">Field Type</p>
-                                <span className="text-xs text-zinc-400">Short Text</span>
-                             </div>
-                          </div>
-                        </motion.div>
-                      ))}
+                              )}
+                            </div>
+                          </motion.div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -1586,19 +1735,149 @@ const AdminDashboard = () => {
                 <div className="col-span-4 space-y-6">
                   <div className="glass-card p-6">
                     <h4 className="font-semibold mb-4 text-sm uppercase tracking-wider text-zinc-500">Live Preview</h4>
-                    <div className="p-4 bg-black/40 rounded-xl border border-white/5 aspect-[3/4] overflow-hidden">
+                    <div className="p-4 bg-black/40 rounded-xl border border-white/5 aspect-[3/4] overflow-y-auto">
                       <div className="w-full h-12 bg-primary/20 rounded-lg mb-6 flex items-center justify-center">
-                          <span className="text-primary font-bold text-xs">HEADER LOGO</span>
+                        <span className="text-primary font-bold text-xs">HEADER LOGO</span>
                       </div>
-                      <div className="space-y-4">
-                          {[1, 2, 3].map(i => (
-                              <div key={i} className="h-8 bg-white/5 rounded" />
-                          ))}
-                          <div className="h-10 bg-primary rounded-lg mt-8" />
+                      <div className="space-y-3">
+                        {formFields.map((field) => {
+                          const FieldIcon = getIconByName(field.iconName);
+                          return (
+                            <div key={field.id} className="space-y-1">
+                              <label className="text-[10px] font-bold text-zinc-400 uppercase flex items-center gap-1">
+                                {field.name} {field.required && <span className="text-red-400">*</span>}
+                              </label>
+                              {field.type === 'camera' && (
+                                <div className="h-24 bg-zinc-800/50 rounded-lg border border-dashed border-white/10 flex flex-col items-center justify-center gap-1">
+                                  <Camera className="w-5 h-5 text-zinc-500" />
+                                  <span className="text-[9px] text-zinc-500 font-bold uppercase">Take Photo</span>
+                                </div>
+                              )}
+                              {field.type === 'image' && (
+                                <div className="h-24 bg-zinc-800/50 rounded-lg border border-dashed border-white/10 flex flex-col items-center justify-center gap-1">
+                                  <ImageIcon className="w-5 h-5 text-zinc-500" />
+                                  <span className="text-[9px] text-zinc-500 font-bold uppercase">Upload Image</span>
+                                </div>
+                              )}
+                              {field.type === 'pdf' && (
+                                <div className="h-24 bg-zinc-800/50 rounded-lg border border-dashed border-white/10 flex flex-col items-center justify-center gap-1">
+                                  <FileText className="w-5 h-5 text-zinc-500" />
+                                  <span className="text-[9px] text-zinc-500 font-bold uppercase">Upload PDF</span>
+                                </div>
+                              )}
+                              {field.type === 'textarea' && (
+                                <div className="h-16 bg-zinc-800/50 rounded-lg border border-white/10" />
+                              )}
+                              {field.type === 'select' && (
+                                <div className="h-8 bg-zinc-800/50 rounded-lg border border-white/10 flex items-center px-3">
+                                  <span className="text-xs text-zinc-500">Select option...</span>
+                                </div>
+                              )}
+                              {field.type === 'checkbox' && (
+                                <div className="flex items-center gap-2 py-1">
+                                  <div className="w-4 h-4 rounded border border-white/20" />
+                                  <span className="text-xs text-zinc-500">Option</span>
+                                </div>
+                              )}
+                              {['text','email','phone','number','date'].includes(field.type) && (
+                                <div className="h-8 bg-zinc-800/50 rounded-lg border border-white/10 flex items-center px-3 gap-2">
+                                  <FieldIcon className="w-3 h-3 text-zinc-600" />
+                                  <span className="text-xs text-zinc-600">
+                                    {field.type === 'email' ? 'email@example.com' :
+                                     field.type === 'phone' ? '+1 234 567 890' :
+                                     field.type === 'date' ? 'YYYY-MM-DD' :
+                                     field.type === 'number' ? '0' : 'Type here...'}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        <div className="h-10 bg-primary rounded-lg mt-6 flex items-center justify-center">
+                          <span className="text-white font-bold text-xs uppercase tracking-wider">Register</span>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
+
+                {/* Add/Edit Field Modal */}
+                {showFieldModal && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="glass-panel w-full max-w-md p-6 border border-white/10"
+                    >
+                      <h3 className="text-lg font-semibold text-white mb-4">
+                        {editingFieldId ? 'Edit Field' : 'Add Field'}
+                      </h3>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-xs font-bold text-zinc-500 uppercase mb-1 block">Field Label</label>
+                          <input
+                            type="text"
+                            value={newField.name}
+                            onChange={(e) => setNewField({ ...newField, name: e.target.value })}
+                            className="w-full bg-zinc-800/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                            placeholder="e.g. Company Name"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-zinc-500 uppercase mb-1 block">Field Type</label>
+                          <select
+                            value={newField.type}
+                            onChange={(e) => {
+                              const typeOpt = fieldTypeOptions.find(t => t.value === e.target.value);
+                              setNewField({ ...newField, type: e.target.value, iconName: typeOpt ? typeOpt.iconName : newField.iconName });
+                            }}
+                            className="w-full bg-zinc-800/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                          >
+                            {fieldTypeOptions.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-zinc-500 uppercase">Required</label>
+                          <button
+                            onClick={() => setNewField({ ...newField, required: !newField.required })}
+                            className={`w-10 h-5 rounded-full relative transition-colors ${newField.required ? 'bg-primary' : 'bg-zinc-700'}`}
+                          >
+                            <div className={`w-3 h-3 bg-white rounded-full absolute top-1 transition-all ${newField.required ? 'left-6' : 'left-1'}`} />
+                          </button>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-zinc-500 uppercase mb-1 block">Assigned Ticket</label>
+                          <select
+                            value={newField.ticketIds?.[0] || 'all'}
+                            onChange={(e) => setNewField({ ...newField, ticketIds: [e.target.value] })}
+                            className="w-full bg-zinc-800/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                          >
+                            <option value="all">All Tickets</option>
+                            {tickets.map(t => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-3 mt-6">
+                        <button
+                          onClick={() => { setShowFieldModal(false); setEditingFieldId(null); }}
+                          className="px-4 py-2 text-xs font-bold text-zinc-400 hover:text-white transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={addFormField}
+                          className="px-4 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary/80 transition-colors"
+                        >
+                          {editingFieldId ? 'Save Changes' : 'Add Field'}
+                        </button>
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
               </>
             )}
 

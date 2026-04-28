@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion as Motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, doc, updateDoc, arrayUnion, serverTimestamp, addDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, updateDoc, arrayUnion, serverTimestamp, addDoc, where } from 'firebase/firestore';
 import { Html5Qrcode } from 'html5-qrcode';
-import { QrCode, CheckCircle2, XCircle, ArrowLeft, Wifi, Settings, AlertTriangle, MapPin, Users, Gift, Package, ShieldOff, Clock, Radio, Mail, Monitor, ExternalLink, RefreshCw, Zap, UserPlus } from 'lucide-react';
+import { QrCode, CheckCircle2, XCircle, ArrowLeft, Wifi, Settings, AlertTriangle, MapPin, Users, Gift, Package, ShieldOff, Clock, Radio, Mail, Monitor, ExternalLink, RefreshCw, Zap, UserPlus, LogOut, Calendar } from 'lucide-react';
 import { checkZoneAccess, DEFAULT_ZONE_RULES } from '../utils/zoneRules';
 
 const generateConfirmId = (prefix) => `${prefix}-${Math.random().toString(36).substr(2, 6).toUpperCase()}-${new Date().getFullYear()}`;
@@ -68,8 +68,18 @@ const ScannerMode = () => {
   const handleScanRef = useRef(null); // populated after handleScan is defined
 
   // State
-  const [gateConfig, setGateConfig] = useState(loadGateConfig);
-  const [showGateSetup, setShowGateSetup] = useState(!loadGateConfig());
+  const [deviceSession, setDeviceSession] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('eventpro_device_session') || 'null'); } catch { return null; }
+  });
+  const [gateConfig, setGateConfig] = useState(() => {
+    const cfg = loadGateConfig();
+    const session = (() => { try { return JSON.parse(localStorage.getItem('eventpro_device_session') || 'null'); } catch { return null; } })();
+    if (cfg && session?.event?.id && !cfg.eventId) {
+      return { ...cfg, eventId: session.event.id, eventName: session.event.name };
+    }
+    return cfg;
+  });
+  const [showGateSetup, setShowGateSetup] = useState(!deviceSession && !loadGateConfig());
   const [draftGate, setDraftGate] = useState({ preset: 'main-entrance', customName: '' });
   const [attendees, setAttendees] = useState([]);
   const [staffPasses, setStaffPasses] = useState([]);
@@ -170,14 +180,17 @@ const ScannerMode = () => {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
 
-  // Load attendees & staff from Firebase (real-time)
+  // Load attendees & staff from Firebase (real-time) — FILTER BY EVENT
   useEffect(() => {
-    const q = query(collection(db, 'attendees'));
+    const eventId = deviceSession?.event?.id;
+    const q = eventId
+      ? query(collection(db, 'attendees'), where('eventId', '==', eventId))
+      : query(collection(db, 'attendees'));
     const unsub = onSnapshot(q, snap => {
       setAttendees(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, err => console.warn('Attendee listener error:', err));
     return () => unsub();
-  }, []);
+  }, [deviceSession?.event?.id]);
 
   useEffect(() => {
     const q = query(collection(db, 'staffPasses'));
@@ -264,13 +277,45 @@ const ScannerMode = () => {
       const session = JSON.parse(localStorage.getItem('eventpro_device_session') || '{}');
       addDoc(collection(db, 'scanLogs'), {
         ...entry,
+        // Device legacy fields
         deviceId:   session.deviceId   || null,
         deviceName: session.deviceName || null,
         holderName: session.holder?.name || null,
+        // Volunteer custody chain
+        supervisorId:   session.supervisor?.id   || null,
+        supervisorName: session.supervisor?.name || null,
+        supervisorEmail: session.supervisor?.email || null,
+        eventId:        session.event?.id    || entry.eventId  || null,
+        eventName:      session.event?.name  || entry.eventName || null,
+        gateId:         session.gate?.id     || entry.gateId   || null,
+        gateName:       session.gate?.label  || entry.gateName || null,
+        gateIcon:       session.gate?.icon   || entry.gateIcon || null,
+        volunteerName:  session.volunteer?.name  || null,
+        volunteerEmail: session.volunteer?.email || null,
+        volunteerPhone: session.volunteer?.phone || null,
+        volunteerSessionId: session.volunteerSessionId || null,
         timestamp:  serverTimestamp(),
       }).catch(() => {}); // fire and forget
     } catch { /* never block the scanner */ }
   }, []);
+
+  // ─── End Shift: end volunteer session ──────────────────────────────────────
+  const handleEndShift = useCallback(async () => {
+    const session = JSON.parse(localStorage.getItem('eventpro_device_session') || '{}');
+    if (session.volunteerSessionId && !session.volunteerSessionId.startsWith('local-')) {
+      try {
+        await updateDoc(doc(db, 'volunteerSessions', session.volunteerSessionId), {
+          status: 'ended',
+          shiftEnd: serverTimestamp(),
+        });
+      } catch (e) { console.warn('Failed to update volunteer session:', e); }
+    }
+    localStorage.removeItem('eventpro_device_session');
+    localStorage.removeItem('eventpro_gate_config');
+    setDeviceSession(null);
+    html5QrRef.current?.isScanning && html5QrRef.current.stop();
+    navigate('/device-login');
+  }, [navigate]);
 
   // ─── Cash Collection: mark a pending ticket as paid, then continue to approval ────
   const markPaidAndApprove = useCallback(async (attendee) => {
@@ -492,8 +537,8 @@ const ScannerMode = () => {
       icon: draftGate.preset === 'custom' ? '🔵' : preset.icon,
       scanMode: draftGate.scanMode || 'hybrid',
       collectsCash: !!draftGate.collectsCash,
-      eventId: draftGate.eventId || null,
-      eventName: draftGate.eventName || null,
+      eventId: draftGate.eventId || deviceSession?.event?.id || null,
+      eventName: draftGate.eventName || deviceSession?.event?.name || null,
       ticketTypes: Array.isArray(draftGate.ticketTypes) ? draftGate.ticketTypes : [],
       sessionTracking,
       session: selectedSession
@@ -518,9 +563,9 @@ const ScannerMode = () => {
     <div className="fixed inset-0 bg-black flex flex-col overflow-hidden">
 
       {/* Status Bar */}
-      <div className="flex items-center justify-between px-4 md:px-6 py-4 bg-black/80 backdrop-blur-sm border-b border-white/5 z-10">
+      <div className="flex items-center justify-between px-4 md:px-6 py-3 bg-black/80 backdrop-blur-sm border-b border-white/5 z-10">
         <button
-          onClick={() => { html5QrRef.current?.isScanning && html5QrRef.current.stop(); navigate('/supervisor'); }}
+          onClick={() => { html5QrRef.current?.isScanning && html5QrRef.current.stop(); navigate('/device-login'); }}
           className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />
@@ -552,6 +597,31 @@ const ScannerMode = () => {
             </div>
           )}
 
+          {/* Volunteer Session Indicator */}
+          {deviceSession?.volunteer?.name && (
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5">
+              <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden">
+                {deviceSession.volunteer.photo ? (
+                  <img src={deviceSession.volunteer.photo} alt="V" className="w-full h-full object-cover" />
+                ) : (
+                  <Users className="w-3 h-3 text-primary" />
+                )}
+              </div>
+              <div className="flex flex-col items-start leading-none">
+                <span className="text-[8px] font-black text-primary uppercase tracking-tighter">Volunteer</span>
+                <span className="text-[10px] font-bold text-white">{deviceSession.volunteer.name}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Event Badge */}
+          {deviceSession?.event?.name && (
+            <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-zinc-300">
+              <Calendar className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-[10px] font-bold truncate max-w-[120px]">{deviceSession.event.name}</span>
+            </div>
+          )}
+
           <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-white/5 rounded-full border border-white/10 text-zinc-300">
             <MapPin className="w-3.5 h-3.5 text-primary" />
             <span className="text-xs font-bold">{gateConfig?.icon} {gateConfig?.label || 'Setup…'}</span>
@@ -571,6 +641,18 @@ const ScannerMode = () => {
             <Wifi className={`w-3.5 h-3.5 ${isOnline ? 'text-green-400' : 'text-red-400'}`} />
             <span className={`hidden sm:inline text-[10px] font-black uppercase tracking-widest ${isOnline ? 'text-green-400' : 'text-red-400'}`}>{isOnline ? 'Sync' : 'Error'}</span>
           </div>
+
+          {/* End Shift Button */}
+          {deviceSession?.volunteer?.name && (
+            <button
+              onClick={handleEndShift}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 border border-red-500/20 rounded-full text-red-400 hover:bg-red-500/20 transition-colors"
+              title="End Volunteer Shift"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[10px] font-black uppercase tracking-widest">End Shift</span>
+            </button>
+          )}
 
           <button
             onClick={() => setShowGateSetup(true)}
@@ -626,7 +708,7 @@ const ScannerMode = () => {
             {/* Scan frame */}
             <div className="relative z-10 w-64 h-64">
               {/* Animated scanning beam */}
-              <motion.div
+              <Motion.div
                 className="absolute left-2 right-2 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent"
                 animate={{ top: ['8px', '248px', '8px'] }}
                 transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
@@ -660,7 +742,7 @@ const ScannerMode = () => {
       {/* ─── Scan Result Overlay ─── */}
       <AnimatePresence>
         {scanResult && (
-          <motion.div
+          <Motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className={`absolute inset-0 z-50 flex flex-col items-center justify-center p-8 ${
               scanResult.type === 'approved'     ? 'bg-green-950/95'  :
@@ -669,7 +751,7 @@ const ScannerMode = () => {
               scanResult.type === 'payment_due'  ? 'bg-emerald-950/95' : 'bg-red-950/95'
             } backdrop-blur-md`}
           >
-            <motion.div
+            <Motion.div
               initial={{ scale: 0.5 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}
               className="flex flex-col items-center text-center"
             >
@@ -710,7 +792,7 @@ const ScannerMode = () => {
               <p className="text-zinc-400 text-sm mt-6 max-w-xs leading-relaxed">{scanResult.detail}</p>
               
               {scanResult.upsell && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
+                <Motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
                   className="mt-8 p-4 bg-white/10 border border-white/20 rounded-2xl flex flex-col items-center gap-3">
                   <div className="flex items-center gap-2 text-indigo-300 font-bold text-sm">
                     <Mail className="w-5 h-5" />
@@ -721,11 +803,11 @@ const ScannerMode = () => {
                       ? `Lounge access invitation sent to ${getAttendeeEmail(scanResult.attendee)}`
                       : `Workshop session invite sent to ${getAttendeeEmail(scanResult.attendee)}`}
                   </p>
-                </motion.div>
+                </Motion.div>
               )}
 
               {scanResult.type === 'payment_due' && scanResult.attendee && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+                <Motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
                   className="mt-8 flex flex-col items-center gap-3 w-full max-w-sm">
                   <div className="px-6 py-4 bg-white/10 border border-emerald-400/30 rounded-2xl text-center">
                     <p className="text-[10px] font-black text-emerald-300 uppercase tracking-widest">Amount to Collect</p>
@@ -743,10 +825,10 @@ const ScannerMode = () => {
                   >
                     Cancel
                   </button>
-                </motion.div>
+                </Motion.div>
               )}
-            </motion.div>
-          </motion.div>
+            </Motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
@@ -786,11 +868,11 @@ const ScannerMode = () => {
       {/* ─── Gate Setup Wizard Overlay ─── */}
       <AnimatePresence>
         {showGateSetup && (
-          <motion.div
+          <Motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-6"
           >
-                    <motion.div 
+                    <Motion.div 
                         initial={{ y: '100%', opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}
                         exit={{ y: '100%', opacity: 0 }}
@@ -841,12 +923,12 @@ const ScannerMode = () => {
                     <span className="text-xs font-bold text-white">Track Session Attendance</span>
                   </div>
                   <button onClick={() => setSessionTracking(!sessionTracking)} className={`w-12 h-6 rounded-full relative transition-all ${sessionTracking ? 'bg-primary shadow-[0_0_10px_rgba(84,34,255,0.3)]' : 'bg-zinc-800'}`}>
-                    <motion.div animate={{ x: sessionTracking ? 26 : 4 }} className="w-4 h-4 bg-white rounded-full absolute top-1 shadow-md" />
+                    <Motion.div animate={{ x: sessionTracking ? 26 : 4 }} className="w-4 h-4 bg-white rounded-full absolute top-1 shadow-md" />
                   </button>
                 </div>
 
                 {sessionTracking && (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-2">
+                  <Motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-2">
                     <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Select Active Session</label>
                     <div className="space-y-2 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
                       {AGENDA_SESSIONS.map(s => (
@@ -856,7 +938,7 @@ const ScannerMode = () => {
                         </button>
                       ))}
                     </div>
-                  </motion.div>
+                  </Motion.div>
                 )}
 
                 {/* Cash Collection Gate toggle */}
@@ -870,12 +952,12 @@ const ScannerMode = () => {
                     onClick={() => setDraftGate(d => ({ ...d, collectsCash: !d.collectsCash }))}
                     className={`w-12 h-6 rounded-full relative transition-all ${draftGate.collectsCash ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
                   >
-                    <motion.div animate={{ x: draftGate.collectsCash ? 26 : 4 }} className="w-4 h-4 bg-white rounded-full absolute top-1 shadow-md" />
+                    <Motion.div animate={{ x: draftGate.collectsCash ? 26 : 4 }} className="w-4 h-4 bg-white rounded-full absolute top-1 shadow-md" />
                   </button>
                 </div>
 
                 {draftGate.collectsCash && (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-2">
+                  <Motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-2">
                     <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Event for Walk-up Registration</label>
                     {setupEvents.length === 0 ? (
                       <p className="text-[11px] text-zinc-600 italic px-1">Loading events…</p>
@@ -900,7 +982,7 @@ const ScannerMode = () => {
                       </select>
                     )}
                     <p className="text-[10px] text-zinc-600 px-1">Walk-up registrations will be created against this event.</p>
-                  </motion.div>
+                  </Motion.div>
                 )}
               </div>
 
@@ -1006,15 +1088,15 @@ const ScannerMode = () => {
                   </div>
                 </div>
               )}
-            </motion.div>
-          </motion.div>
+            </Motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
 
       {/* ─── Giveaway Session Overlay ─── */}
       <AnimatePresence>
         {giveawaySession && (
-          <motion.div
+          <Motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col"
           >
@@ -1040,7 +1122,7 @@ const ScannerMode = () => {
               {giveawaySession.eligibleItems.map(item => {
                 const isChecked = giveawaySession.checkedItems.includes(item.id);
                 return (
-                  <motion.button
+                  <Motion.button
                     key={item.id}
                     whileTap={{ scale: 0.97 }}
                     onClick={() => setGiveawaySession(s => ({
@@ -1062,7 +1144,7 @@ const ScannerMode = () => {
                     }`}>
                       {isChecked && <CheckCircle2 className="w-5 h-5 text-white" strokeWidth={3} />}
                     </div>
-                  </motion.button>
+                  </Motion.button>
                 );
               })}
             </div>
@@ -1099,7 +1181,7 @@ const ScannerMode = () => {
                 ✓ Confirm ({giveawaySession.checkedItems.length}/{giveawaySession.eligibleItems.length})
               </button>
             </div>
-          </motion.div>
+          </Motion.div>
         )}
       </AnimatePresence>
     </div>
@@ -1108,8 +1190,9 @@ const ScannerMode = () => {
 
 // ─── Walk-up Registration Modal (cash gate) ──────────────────────────────────
 const WalkupModal = ({ gateConfig, onClose, onCreated }) => {
-  const eventId = gateConfig?.eventId;
-  const eventName = gateConfig?.eventName;
+  const session = (() => { try { return JSON.parse(localStorage.getItem('eventpro_device_session') || 'null'); } catch { return null; } })();
+  const eventId = gateConfig?.eventId || session?.event?.id;
+  const eventName = gateConfig?.eventName || session?.event?.name;
   const ticketTypes = Array.isArray(gateConfig?.ticketTypes) ? gateConfig.ticketTypes : [];
   const paidTickets = ticketTypes.filter(t => {
     const p = t.price;
@@ -1178,11 +1261,11 @@ const WalkupModal = ({ gateConfig, onClose, onCreated }) => {
   };
 
   return (
-    <motion.div
+    <Motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="absolute inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-6"
     >
-      <motion.div
+      <Motion.div
         initial={{ y: '100%', opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: '100%', opacity: 0 }}
@@ -1253,8 +1336,8 @@ const WalkupModal = ({ gateConfig, onClose, onCreated }) => {
             </div>
           </div>
         )}
-      </motion.div>
-    </motion.div>
+      </Motion.div>
+    </Motion.div>
   );
 };
 
