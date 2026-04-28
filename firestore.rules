@@ -1,0 +1,209 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function isSuperuser() {
+      return request.auth != null && (
+        request.auth.token.email == "akshay@indianroar.com" ||
+        request.auth.token.phone_number == "+919220601860"
+      );
+    }
+
+    // Fetch the caller's user profile to check role
+    function callerRole() {
+      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return userDoc.data != null ? userDoc.data.role : null;
+    }
+
+    function isRole(role) {
+      return isAuthed() && callerRole() == role;
+    }
+
+    function isAnyRole(roles) {
+      return isAuthed() && callerRole() in roles;
+    }
+
+    // ─── Infrastructure (Superuser only, except own infra configs) ─────────────
+    match /_config/{docId} {
+      allow read, write: if isSuperuser();
+
+      // Allow each role to read/write their own infra config document
+      allow read, write: if isAuthed() &&
+        (docId == "infra_organiser_" + request.auth.uid ||
+         docId == "infra_reseller_" + request.auth.uid ||
+         docId == "infra_owner_" + request.auth.uid);
+
+      match /superusers/{masterId} {
+        allow read: if isSuperuser();
+        allow write: if isSuperuser();
+      }
+
+      match /mainframe/superusers/{masterId} {
+        allow read: if isSuperuser();
+        allow write: if isSuperuser();
+      }
+    }
+
+    // ─── Tenants ───────────────────────────────────────────────────────────────
+    match /tenants/{tenantId} {
+      allow read, write: if isSuperuser();
+    }
+    match /archived_tenants/{tenantId} {
+      allow read, write: if isSuperuser();
+    }
+
+    // ─── Users (multi-tier hierarchy) ─────────────────────────────────────────
+    match /users/{userId} {
+      // Users can read/update their own profile
+      allow read, update: if isAuthed() && userId == request.auth.uid;
+      // Admins can read subordinate users in their hierarchy
+      allow read: if isAnyRole(['admin', 'organizer', 'owner', 'reseller', 'superuser']);
+      // Superuser can do anything
+      allow write: if isSuperuser();
+      // Resellers can create/update owners (parentId == their uid)
+      allow create: if isAnyRole(['reseller', 'superuser']) &&
+        request.resource.data.role in ['owner'] &&
+        request.resource.data.parentId == request.auth.uid;
+      allow update, delete: if isAnyRole(['reseller', 'superuser']) &&
+        resource.data.parentId == request.auth.uid;
+      // Owners can create/manage organizers
+      allow create: if isAnyRole(['owner', 'superuser']) &&
+        request.resource.data.role in ['organizer'] &&
+        request.resource.data.parentId == request.auth.uid;
+      allow update, delete: if isRole('owner') &&
+        resource.data.parentId == request.auth.uid;
+      // Organizers can create admins/supervisors/exhibitors/attendees
+      allow create: if isAnyRole(['organizer', 'superuser']) &&
+        request.resource.data.role in ['admin', 'supervisor', 'exhibitor', 'attendee'] &&
+        request.resource.data.parentId == request.auth.uid;
+      // Admins can create supervisors and exhibitors
+      allow create: if isRole('admin') &&
+        request.resource.data.role in ['supervisor', 'exhibitor', 'attendee'] &&
+        request.resource.data.parentId == request.auth.uid;
+    }
+
+    // ─── Events ───────────────────────────────────────────────────────────────
+    match /events/{eventId} {
+      // Public can read events (for public event page)
+      allow read: if true;
+      // Organizers and above can create events
+      allow create: if isAnyRole(['organizer', 'owner', 'reseller', 'superuser']);
+      // Organizer who owns it, or owner/reseller above them, can update/delete
+      allow update, delete: if isSuperuser() ||
+        (isAnyRole(['organizer', 'admin']) && resource.data.organizerId == request.auth.uid) ||
+        (isRole('owner') && resource.data.ownerId == request.auth.uid) ||
+        (isAnyRole(['reseller', 'superuser']) && resource.data.resellerId == request.auth.uid);
+    }
+
+    // ─── Attendees ────────────────────────────────────────────────────────────
+    match /attendees/{attendeeId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isSuperuser() ||
+        (isAuthed() && resource.data.uid == request.auth.uid) ||
+        isAnyRole(['admin', 'organizer', 'owner', 'reseller']);
+    }
+
+    // ─── Agendas / Sessions ───────────────────────────────────────────────────
+    match /agendas/{agendaId} {
+      allow read: if true;
+      allow write: if isAnyRole(['admin', 'organizer', 'owner', 'reseller', 'superuser']);
+    }
+
+    // ─── Zone Rules ───────────────────────────────────────────────────────────
+    match /zoneRules/{ruleId} {
+      allow read: if isAuthed();
+      allow write: if isAnyRole(['admin', 'organizer', 'owner', 'reseller', 'superuser']);
+    }
+
+    // ─── Staff Passes ─────────────────────────────────────────────────────────
+    match /staffPasses/{passId} {
+      allow read: if isAuthed();
+      allow write: if isAnyRole(['admin', 'organizer', 'owner', 'reseller', 'superuser']);
+    }
+
+    // ─── Scan Logs ────────────────────────────────────────────────────────────
+    match /scanLogs/{logId} {
+      allow create: if isAuthed();
+      allow read: if isAuthed();
+    }
+
+    // ─── Devices ──────────────────────────────────────────────────────────────
+    match /devices/{deviceId} {
+      allow read, write: if isAuthed();
+    }
+
+    // ─── TV Pairings ──────────────────────────────────────────────────────────
+    match /tvPairings/{pairId} {
+      allow read: if isAuthed();
+      allow write: if isAnyRole(['admin', 'organizer', 'owner', 'reseller', 'superuser']);
+    }
+
+    // ─── Communications log ───────────────────────────────────────────────────
+    match /communications/{commId} {
+      allow read: if isAuthed();
+      allow create: if isAuthed();
+      allow update, delete: if isSuperuser();
+    }
+
+    // ─── Giveaways ────────────────────────────────────────────────────────────
+    match /giveaways/{giveawayId} {
+      allow read: if isAuthed();
+      allow write: if isAnyRole(['admin', 'organizer', 'owner', 'reseller', 'superuser']);
+    }
+
+    // ─── Exhibitor Leads ──────────────────────────────────────────────────────
+    match /exhibitorLeads/{leadId} {
+      allow read: if isAuthed() && request.auth.uid == resource.data.exhibitorId;
+      allow create: if isAuthed() && request.auth.uid == request.resource.data.exhibitorId;
+      allow update, delete: if isAuthed() && request.auth.uid == resource.data.exhibitorId;
+    }
+
+    // ─── Speakers ─────────────────────────────────────────────────────────────
+    match /speakers/{speakerId} {
+      allow read: if true;
+      allow create, update, delete: if isAnyRole(['admin', 'organizer', 'owner', 'reseller', 'superuser']);
+    }
+
+    // ─── Exhibitors (directory) ───────────────────────────────────────────────
+    match /exhibitors/{exhibitorId} {
+      allow read: if true;
+      allow create, update, delete: if isAnyRole(['admin', 'organizer', 'owner', 'reseller', 'superuser']);
+    }
+
+    // ─── TV Configs (WelcomeTV designer) ──────────────────────────────────────
+    match /tvConfigs/{gateId} {
+      // WelcomeTV is a public display — unauthenticated reads allowed
+      allow read: if true;
+      allow write: if isAnyRole(['admin', 'organizer', 'owner', 'reseller', 'superuser']);
+    }
+
+    // ─── Q&A Questions (Jumbotron audience feed) ──────────────────────────────
+    match /questions/{questionId} {
+      // Attendees can submit questions; display screens can read them
+      allow create: if true;
+      allow read: if isAuthed();
+      allow update, delete: if isAnyRole(['admin', 'organizer', 'owner', 'superuser']);
+    }
+
+    // ─── Audit Logs ───────────────────────────────────────────────────────────
+    match /auditLogs/{logId} {
+      allow create: if isAuthed();
+      allow read: if isAnyRole(['admin', 'organizer', 'owner', 'reseller', 'superuser']);
+    }
+
+    // ─── Archived Attendees ───────────────────────────────────────────────────
+    match /archived_attendees/{docId} {
+      allow read, write: if isAnyRole(['owner', 'reseller', 'superuser']);
+    }
+
+    // ─── Default: deny everything else ───────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if isSuperuser();
+    }
+  }
+}

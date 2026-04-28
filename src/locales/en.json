@@ -1,0 +1,73 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "events": "Events",
+    "attendees": "Attendees",
+    "settings": "Settings",
+    "logout": "Logout",
+    "analytics": "Analytics",
+    "staff": "Staff",
+    "devices": "Devices"
+  },
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "export": "Export",
+    "search": "Search",
+    "confirm": "Confirm",
+    "back": "Back"
+  },
+  "status": {
+    "active": "Active",
+    "suspended": "Suspended",
+    "archived": "Archived",
+    "pending": "Pending",
+    "verified": "Verified"
+  },
+  "roles": {
+    "superuser": "Superuser",
+    "reseller": "Reseller",
+    "owner": "Owner",
+    "organizer": "Organizer",
+    "admin": "Admin",
+    "supervisor": "Supervisor",
+    "exhibitor": "Exhibitor",
+    "attendee": "Attendee"
+  },
+  "events": {
+    "createEvent": "Create Event",
+    "eventName": "Event Name",
+    "eventDate": "Event Date",
+    "eventLocation": "Event Location",
+    "eventType": "Event Type",
+    "noEvents": "No events found"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "email": "Email",
+    "phone": "Phone",
+    "password": "Password",
+    "sendOtp": "Send OTP",
+    "verifyOtp": "Verify OTP",
+    "forgotPassword": "Forgot Password?"
+  },
+  "errors": {
+    "required": "This field is required",
+    "invalidEmail": "Please enter a valid email address",
+    "limitReached": "Limit reached",
+    "networkError": "Network error. Please try again."
+  },
+  "common": {
+    "loading": "Loading...",
+    "noData": "No data available",
+    "success": "Success",
+    "error": "Error",
+    "warning": "Warning",
+    "currency": "Currency",
+    "language": "Language"
+  }
+}

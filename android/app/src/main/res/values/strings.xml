@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">EventPro POS</string>
+    <string name="title_activity_main">EventPro POS</string>
+    <string name="package_name">com.eventpro.pos</string>
+    <string name="custom_url_scheme">com.eventpro.pos</string>
+</resources>

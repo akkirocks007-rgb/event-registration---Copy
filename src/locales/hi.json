@@ -1,0 +1,73 @@
+{
+  "nav": {
+    "dashboard": "डैशबोर्ड",
+    "events": "कार्यक्रम",
+    "attendees": "प्रतिभागी",
+    "settings": "सेटिंग्स",
+    "logout": "लॉग आउट",
+    "analytics": "विश्लेषण",
+    "staff": "स्टाफ",
+    "devices": "डिवाइस"
+  },
+  "actions": {
+    "save": "सहेजें",
+    "cancel": "रद्द करें",
+    "delete": "हटाएं",
+    "edit": "संपादित करें",
+    "add": "जोड़ें",
+    "export": "निर्यात करें",
+    "search": "खोजें",
+    "confirm": "पुष्टि करें",
+    "back": "वापस"
+  },
+  "status": {
+    "active": "सक्रिय",
+    "suspended": "निलंबित",
+    "archived": "संग्रहीत",
+    "pending": "लंबित",
+    "verified": "सत्यापित"
+  },
+  "roles": {
+    "superuser": "सुपरयूजर",
+    "reseller": "पुनर्विक्रेता",
+    "owner": "स्वामी",
+    "organizer": "आयोजक",
+    "admin": "व्यवस्थापक",
+    "supervisor": "पर्यवेक्षक",
+    "exhibitor": "प्रदर्शक",
+    "attendee": "प्रतिभागी"
+  },
+  "events": {
+    "createEvent": "कार्यक्रम बनाएं",
+    "eventName": "कार्यक्रम का नाम",
+    "eventDate": "कार्यक्रम की तिथि",
+    "eventLocation": "कार्यक्रम का स्थान",
+    "eventType": "कार्यक्रम का प्रकार",
+    "noEvents": "कोई कार्यक्रम नहीं मिला"
+  },
+  "auth": {
+    "login": "लॉग इन",
+    "logout": "लॉग आउट",
+    "email": "ईमेल",
+    "phone": "फोन",
+    "password": "पासवर्ड",
+    "sendOtp": "OTP भेजें",
+    "verifyOtp": "OTP सत्यापित करें",
+    "forgotPassword": "पासवर्ड भूल गए?"
+  },
+  "errors": {
+    "required": "यह फ़ील्ड आवश्यक है",
+    "invalidEmail": "कृपया एक वैध ईमेल पता दर्ज करें",
+    "limitReached": "सीमा समाप्त हो गई",
+    "networkError": "नेटवर्क त्रुटि। कृपया पुनः प्रयास करें।"
+  },
+  "common": {
+    "loading": "लोड हो रहा है...",
+    "noData": "कोई डेटा उपलब्ध नहीं",
+    "success": "सफलता",
+    "error": "त्रुटि",
+    "warning": "चेतावनी",
+    "currency": "मुद्रा",
+    "language": "भाषा"
+  }
+}

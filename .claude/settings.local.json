@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($path = \"c:\\\\Users\\\\aksha\\\\.gemini\\\\antigravity\\\\scratch\\\\event-registration - Copy\\\\src\\\\components\\\\ZoneRulesManager.jsx\"; $text = [System.IO.File]::ReadAllText\\($path, [System.Text.Encoding]::UTF8\\); $matches = [regex]::Matches\\($text, '[^\\\\x00-\\\\x7F]'\\); $unique = $matches | ForEach-Object { $_.Value } | Sort-Object -Unique; $unique | ForEach-Object { $b = [System.Text.Encoding]::UTF8.GetBytes\\($_\\); \"$_ -> bytes: $\\($b -join ','\\) len:$\\($b.Length\\)\" })"
+    ]
+  }
+}

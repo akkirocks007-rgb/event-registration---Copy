@@ -1,0 +1,74 @@
+{
+  "dir": "rtl",
+  "nav": {
+    "dashboard": "لوحة التحكم",
+    "events": "الفعاليات",
+    "attendees": "الحضور",
+    "settings": "الإعدادات",
+    "logout": "تسجيل الخروج",
+    "analytics": "التحليلات",
+    "staff": "الموظفون",
+    "devices": "الأجهزة"
+  },
+  "actions": {
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "delete": "حذف",
+    "edit": "تعديل",
+    "add": "إضافة",
+    "export": "تصدير",
+    "search": "بحث",
+    "confirm": "تأكيد",
+    "back": "رجوع"
+  },
+  "status": {
+    "active": "نشط",
+    "suspended": "معلّق",
+    "archived": "مؤرشف",
+    "pending": "قيد الانتظار",
+    "verified": "موثّق"
+  },
+  "roles": {
+    "superuser": "مستخدم خارق",
+    "reseller": "موزّع",
+    "owner": "مالك",
+    "organizer": "منظّم",
+    "admin": "مدير",
+    "supervisor": "مشرف",
+    "exhibitor": "عارض",
+    "attendee": "حاضر"
+  },
+  "events": {
+    "createEvent": "إنشاء فعالية",
+    "eventName": "اسم الفعالية",
+    "eventDate": "تاريخ الفعالية",
+    "eventLocation": "مكان الفعالية",
+    "eventType": "نوع الفعالية",
+    "noEvents": "لم يتم العثور على فعاليات"
+  },
+  "auth": {
+    "login": "تسجيل الدخول",
+    "logout": "تسجيل الخروج",
+    "email": "البريد الإلكتروني",
+    "phone": "الهاتف",
+    "password": "كلمة المرور",
+    "sendOtp": "إرسال OTP",
+    "verifyOtp": "التحقق من OTP",
+    "forgotPassword": "نسيت كلمة المرور؟"
+  },
+  "errors": {
+    "required": "هذا الحقل مطلوب",
+    "invalidEmail": "يرجى إدخال بريد إلكتروني صحيح",
+    "limitReached": "تم الوصول إلى الحد الأقصى",
+    "networkError": "خطأ في الشبكة. يرجى المحاولة مرة أخرى."
+  },
+  "common": {
+    "loading": "جارٍ التحميل...",
+    "noData": "لا توجد بيانات متاحة",
+    "success": "نجاح",
+    "error": "خطأ",
+    "warning": "تحذير",
+    "currency": "العملة",
+    "language": "اللغة"
+  }
+}

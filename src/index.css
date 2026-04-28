@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: var(--primary-color, #5422ff);
+  --color-primary-glow: var(--primary-glow, rgba(84, 34, 255, 0.4));
+  --color-bg-dark: #09090b;
+  --color-bg-card: rgba(24, 24, 27, 0.6);
+  
+  --font-inter: "Inter", sans-serif;
+  
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+}
+
+@layer base {
+  body {
+    @apply bg-bg-dark text-slate-100 font-inter antialiased overflow-x-hidden;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl;
+  }
+
+  .glass-card {
+    @apply bg-zinc-900/40 backdrop-blur-lg border border-white/5 rounded-xl transition-all duration-300;
+  }
+
+  .glass-card:hover {
+    @apply border-primary/50 shadow-[0_0_20px_rgba(84,34,255,0.15)] -translate-y-0.5;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-white px-6 py-2.5 rounded-lg font-semibold 
+           shadow-[0_4px_15px_rgba(84,34,255,0.3)] hover:opacity-90 
+           active:scale-95 transition-all duration-200 cursor-pointer;
+  }
+
+  .input-base {
+    @apply bg-white/5 border border-white/10 text-white p-3 rounded-lg 
+           outline-none focus:border-primary transition-colors;
+  }
+}
+
+.bg-mesh {
+  @apply fixed inset-0 -z-10 bg-[radial-gradient(circle_at_0%_0%,rgba(84,34,255,0.15)_0%,transparent_50%),radial-gradient(circle_at_100%_100%,rgba(139,92,246,0.1)_0%,transparent_50%)];
+}
+
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+.scanline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(to bottom, transparent, var(--color-primary), transparent);
+  opacity: 0.1;
+  animation: scanline 4s linear infinite;
+}
+
+@keyframes glitch {
+  0% { transform: translate(0); }
+  20% { transform: translate(-2px, 2px); }
+  40% { transform: translate(-2px, -2px); }
+  60% { transform: translate(2px, 2px); }
+  80% { transform: translate(2px, -2px); }
+  100% { transform: translate(0); }
+}
+
+.glitch-text:hover {
+  animation: glitch 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite;
+  text-shadow: 2px 0 #5422ff, -2px 0 #ff22ec;
+}
+
+.glow-primary {
+  box-shadow: 0 0 20px var(--color-primary-glow);
+}
+
