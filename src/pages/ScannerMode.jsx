@@ -2,10 +2,15 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence, motion as Motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, doc, updateDoc, arrayUnion, serverTimestamp, addDoc, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, updateDoc, arrayUnion, serverTimestamp, addDoc, where, getDocs } from 'firebase/firestore';
 import { Html5Qrcode } from 'html5-qrcode';
 import { QrCode, CheckCircle2, XCircle, ArrowLeft, Wifi, Settings, AlertTriangle, MapPin, Users, Gift, Package, ShieldOff, Clock, Radio, Mail, Monitor, ExternalLink, RefreshCw, Zap, UserPlus, LogOut, Calendar } from 'lucide-react';
 import { checkZoneAccess, DEFAULT_ZONE_RULES } from '../utils/zoneRules';
+import {
+  lookupCachedPerson, loadCachedAttendees, loadCachedStaff,
+  queueScanOperation, getScanQueue, removeFromQueue, markQueueAttempt,
+  cacheEventAttendees, cacheStaffPasses, clearAllCache
+} from '../utils/offlineCache';
 
 const generateConfirmId = (prefix) => `${prefix}-${Math.random().toString(36).substr(2, 6).toUpperCase()}-${new Date().getFullYear()}`;
 
@@ -87,6 +92,8 @@ const ScannerMode = () => {
   const [giveawaySession, setGiveawaySession] = useState(null); // { attendee, eligibleItems, checkedItems }
   const [, setScanCount] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [offlineQueueCount, setOfflineQueueCount] = useState(0);
+  const [cacheReady, setCacheReady] = useState(false);
   const [sessionTracking, setSessionTracking] = useState(false);
   const [selectedSession, setSelectedSession] = useState(null);
   const [pairingCodeInput, setPairingCodeInput] = useState('');
@@ -171,25 +178,38 @@ const ScannerMode = () => {
   }, []);
 
 
-  // Monitor online state
-  useEffect(() => {
-    const on = () => setIsOnline(true);
-    const off = () => setIsOnline(false);
-    window.addEventListener('online', on);
-    window.addEventListener('offline', off);
-    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
-  }, []);
-
-  // Load attendees & staff from Firebase (real-time) — FILTER BY EVENT
+  // Load attendees & staff — cache first, then Firestore real-time updates
   useEffect(() => {
     const eventId = deviceSession?.event?.id;
-    const q = eventId
-      ? query(collection(db, 'attendees'), where('eventId', '==', eventId))
-      : query(collection(db, 'attendees'));
-    const unsub = onSnapshot(q, snap => {
-      setAttendees(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, err => console.warn('Attendee listener error:', err));
-    return () => unsub();
+    let unsub = null;
+
+    const loadFromCache = async () => {
+      try {
+        const cachedAttendees = await loadCachedAttendees(eventId);
+        if (cachedAttendees.length > 0) {
+          setAttendees(cachedAttendees);
+          setCacheReady(true);
+        }
+        const cachedStaff = await loadCachedStaff();
+        if (cachedStaff.length > 0) {
+          setStaffPasses(cachedStaff.map(s => ({ ...s, isStaff: true })));
+        }
+      } catch (e) { console.warn('[Scanner] Cache load failed:', e); }
+    };
+
+    const subscribeFirestore = () => {
+      const q = eventId
+        ? query(collection(db, 'attendees'), where('eventId', '==', eventId))
+        : query(collection(db, 'attendees'));
+      unsub = onSnapshot(q, snap => {
+        setAttendees(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setCacheReady(true);
+      }, err => console.warn('Attendee listener error:', err));
+    };
+
+    loadFromCache();
+    subscribeFirestore();
+    return () => unsub && unsub();
   }, [deviceSession?.event?.id]);
 
   useEffect(() => {
@@ -272,16 +292,14 @@ const ScannerMode = () => {
   // Removed old redundant comment about Refunkunkunkunkunkunkunkunk
 
   // ─── Write scan event to scanLogs collection ───────────────────────────────
-  const writeScanLog = useCallback((entry) => {
+  const writeScanLog = useCallback(async (entry) => {
     try {
       const session = JSON.parse(localStorage.getItem('eventpro_device_session') || '{}');
-      addDoc(collection(db, 'scanLogs'), {
+      const payload = {
         ...entry,
-        // Device legacy fields
         deviceId:   session.deviceId   || null,
         deviceName: session.deviceName || null,
         holderName: session.holder?.name || null,
-        // Volunteer custody chain
         supervisorId:   session.supervisor?.id   || null,
         supervisorName: session.supervisor?.name || null,
         supervisorEmail: session.supervisor?.email || null,
@@ -295,9 +313,113 @@ const ScannerMode = () => {
         volunteerPhone: session.volunteer?.phone || null,
         volunteerSessionId: session.volunteerSessionId || null,
         timestamp:  serverTimestamp(),
-      }).catch(() => {}); // fire and forget
-    } catch { /* never block the scanner */ }
+      };
+      if (!navigator.onLine) {
+        await queueScanOperation({ type: 'scanLog', data: payload });
+        setOfflineQueueCount(c => c + 1);
+        return;
+      }
+      await addDoc(collection(db, 'scanLogs'), payload);
+    } catch {
+      // If Firestore write fails, queue for retry
+      try {
+        await queueScanOperation({ type: 'scanLog', data: { ...entry, timestamp: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } } });
+        setOfflineQueueCount(c => c + 1);
+      } catch { /* never block the scanner */ }
+    }
   }, []);
+
+  // ─── Write checkpoint (attendee/staff scan record) ──────────────────────────
+  const writeCheckpoint = useCallback(async (personId, collectionName, checkpointEntry, updates) => {
+    if (!navigator.onLine) {
+      await queueScanOperation({
+        type: 'checkpoint',
+        data: { personId, collectionName, checkpointEntry, updates },
+      });
+      setOfflineQueueCount(c => c + 1);
+      return;
+    }
+    try {
+      await updateDoc(doc(db, collectionName, personId), {
+        checkpoints: arrayUnion(checkpointEntry),
+        ...updates,
+      });
+    } catch (e) {
+      console.warn('Checkpoint write failed, queuing:', e);
+      await queueScanOperation({
+        type: 'checkpoint',
+        data: { personId, collectionName, checkpointEntry, updates },
+      });
+      setOfflineQueueCount(c => c + 1);
+    }
+  }, []);
+
+  // ─── Flush pending scan queue when online ──────────────────────────────────
+  const flushScanQueue = useCallback(async () => {
+    const queue = await getScanQueue();
+    if (queue.length === 0) return;
+    let flushed = 0;
+    for (const item of queue) {
+      try {
+        if (item.type === 'scanLog') {
+          await addDoc(collection(db, 'scanLogs'), { ...item.data, timestamp: serverTimestamp() });
+        } else if (item.type === 'checkpoint') {
+          const { personId, collectionName, checkpointEntry, updates } = item.data;
+          await updateDoc(doc(db, collectionName, personId), {
+            checkpoints: arrayUnion(checkpointEntry),
+            ...updates,
+          });
+        }
+        await removeFromQueue(item.localId);
+        flushed++;
+      } catch (e) {
+        await markQueueAttempt(item.localId, e);
+        console.warn(`Flush failed for item ${item.localId}:`, e);
+      }
+    }
+    const remaining = await getScanQueue();
+    setOfflineQueueCount(remaining.length);
+    if (flushed > 0) console.log(`[Scanner] Flushed ${flushed} queued operations`);
+  }, []);
+
+  // Listen for online events and flush queue
+  useEffect(() => {
+    const onOnline = () => { setIsOnline(true); };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+
+  // Flush queue when coming online
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (isOnline) flushScanQueue();
+  }, [isOnline, flushScanQueue]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // Periodic cache refresh (every 60s when online)
+  useEffect(() => {
+    if (!deviceSession?.event?.id) return;
+    const interval = setInterval(async () => {
+      if (!navigator.onLine) return;
+      try {
+        const eventId = deviceSession.event.id;
+        const q = query(collection(db, 'attendees'), where('eventId', '==', eventId));
+        const snap = await getDocs(q);
+        const attendees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        await cacheEventAttendees(eventId, attendees);
+        const staffSnap = await getDocs(query(collection(db, 'staffPasses')));
+        const staff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        await cacheStaffPasses(staff);
+        console.log(`[Scanner] Cache refreshed: ${attendees.length} attendees, ${staff.length} staff`);
+      } catch (e) { console.warn('[Scanner] Cache refresh failed:', e); }
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [deviceSession?.event?.id]);
 
   // ─── End Shift: end volunteer session ──────────────────────────────────────
   const handleEndShift = useCallback(async () => {
@@ -313,6 +435,7 @@ const ScannerMode = () => {
     localStorage.removeItem('eventpro_device_session');
     localStorage.removeItem('eventpro_gate_config');
     setDeviceSession(null);
+    await clearAllCache();
     html5QrRef.current?.isScanning && html5QrRef.current.stop();
     navigate('/device-login');
   }, [navigate]);
@@ -374,10 +497,18 @@ const ScannerMode = () => {
 
     const gateId = gateConfig?.id || 'main-entrance';
     const gateLabel = gateConfig?.label || 'Main Entrance';
+    const eventId = deviceSession?.event?.id;
 
-    // 1. Find subject (Attendee or Staff)
-    const person = attendees.find(a => a.id === scannedId || getAttendeeEmail(a) === scannedId) ||
-                   staffPasses.find(s => s.id === scannedId || s.email === scannedId);
+    // 1. Find subject (Attendee or Staff) — memory first, then IndexedDB cache
+    let person = attendees.find(a => a.id === scannedId || getAttendeeEmail(a) === scannedId) ||
+                 staffPasses.find(s => s.id === scannedId || s.email === scannedId);
+
+    if (!person && cacheReady) {
+      try {
+        const cached = await lookupCachedPerson(scannedId, eventId);
+        if (cached) person = cached;
+      } catch (e) { console.warn('Cache lookup failed:', e); }
+    }
 
     if (!person) {
       setScanResult({ type: 'rejected', reason: 'Not Registered', detail: 'This ID was not found in the system.' });
@@ -499,29 +630,38 @@ const ScannerMode = () => {
     // 5. Grant Access
     const checkpointEntry = { gateId, gateLabel, time: new Date().toISOString() };
     const collectionName = isStaff ? 'staffPasses' : 'attendees';
+    const checkpointUpdates = {
+      status: isStaff ? person.status : 'checked-in',
+      scanned: true,
+      lastScanGate: gateLabel,
+      lastScanTime: serverTimestamp(),
+    };
 
-    try {
-      await updateDoc(doc(db, collectionName, person.id), {
-        checkpoints: arrayUnion(checkpointEntry),
-        status: isStaff ? person.status : 'checked-in',
-        scanned: true,
-        lastScanGate: gateLabel,
-        lastScanTime: serverTimestamp(),
-      });
-    } catch (e) {
-      console.warn('Write failed', e);
+    // Optimistically update local state so duplicate detection works immediately
+    if (isStaff) {
+      setStaffPasses(prev => prev.map(s => s.id === person.id
+        ? { ...s, checkpoints: [...(s.checkpoints || []), checkpointEntry], ...checkpointUpdates }
+        : s
+      ));
+    } else {
+      setAttendees(prev => prev.map(a => a.id === person.id
+        ? { ...a, checkpoints: [...(a.checkpoints || []), checkpointEntry], ...checkpointUpdates }
+        : a
+      ));
     }
 
-    setScanResult({ 
-      type: 'approved', 
-      attendee: person, 
-      reason: isStaff ? 'STAFF AUTHORIZED' : 'Access Granted', 
-      detail: isStaff ? `Internal Role: ${person.role.toUpperCase()}` : (person.ticketName || 'General Delegate') 
+    await writeCheckpoint(person.id, collectionName, checkpointEntry, checkpointUpdates);
+
+    setScanResult({
+      type: 'approved',
+      attendee: person,
+      reason: isStaff ? 'STAFF AUTHORIZED' : 'Access Granted',
+      detail: isStaff ? `Internal Role: ${person.role.toUpperCase()}` : (person.ticketName || 'General Delegate')
     });
     writeScanLog({ gateId, gateName: gateLabel, result: 'approved', reason: 'Success' });
     setScanCount(c => c + 1);
     setTimeout(() => setScanResult(null), 3500);
-  }, [attendees, gateConfig, zoneRules, isCashGate, isGiveawayGate, staffPasses, writeScanLog]);
+  }, [attendees, gateConfig, zoneRules, isCashGate, isGiveawayGate, staffPasses, writeScanLog, writeCheckpoint, cacheReady, deviceSession?.event?.id]);
 
   // Update handleScanRef so camera callback always calls latest handleScan
   useEffect(() => {
@@ -641,6 +781,14 @@ const ScannerMode = () => {
             <Wifi className={`w-3.5 h-3.5 ${isOnline ? 'text-green-400' : 'text-red-400'}`} />
             <span className={`hidden sm:inline text-[10px] font-black uppercase tracking-widest ${isOnline ? 'text-green-400' : 'text-red-400'}`}>{isOnline ? 'Sync' : 'Error'}</span>
           </div>
+
+          {/* Offline Queue Indicator */}
+          {offlineQueueCount > 0 && (
+            <div className="flex items-center gap-1.5 px-2 md:px-3 py-1.5 bg-amber-500/10 rounded-full border border-amber-500/20">
+              <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" style={{ animationDuration: '2s' }} />
+              <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">{offlineQueueCount}</span>
+            </div>
+          )}
 
           {/* End Shift Button */}
           {deviceSession?.volunteer?.name && (

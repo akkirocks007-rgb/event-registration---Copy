@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import { Calendar, MapPin, Users, ArrowRight, ShieldCheck, CheckCircle2, Ticket, ChevronRight, Plus, Trash2, UserPlus, Star, Camera, Scan, Cpu, Eye, ImageIcon, Sparkles, RefreshCw, Banknote, CreditCard, Clock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import DynamicBadge from '../components/DynamicBadge';
 import { db } from '../firebase';
 import { collection, addDoc, updateDoc, doc, increment, serverTimestamp, getDocs, getDoc, query, where } from 'firebase/firestore';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -769,15 +770,31 @@ const PublicEventPage = () => {
                                                     Our team will verify your credentials and notify you via email shortly. Once approved, your digital ticket will appear here.
                                                 </p>
                                             </div>
+                                        ) : event?.badgeDesign ? (
+                                          <div className="flex justify-center mb-8">
+                                            <DynamicBadge
+                                              design={event.badgeDesign}
+                                              attendee={{
+                                                firstName: formData.name,
+                                                email: formData.email,
+                                                phone: formData.phone,
+                                                company: formData.company,
+                                                designation: formData.designation,
+                                                ticketName: selectedTicket?.name,
+                                                confirmationId
+                                              }}
+                                              eventName={event?.name || 'Event'}
+                                            />
+                                          </div>
                                         ) : (
                                           <div className="perspective-1000 mb-8 z-10 relative">
-                                              <motion.div 
+                                              <motion.div
                                                   onMouseMove={handleMouseMove}
                                                   onMouseLeave={handleMouseLeave}
                                                   style={{ rotateX, rotateY, transformStyle: "preserve-3d" }}
                                                   className="bg-white rounded-2xl p-6 text-slate-900 text-left relative shadow-2xl cursor-pointer"
                                               >
-                                                  <motion.div 
+                                                  <motion.div
                                                       className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/40 to-white/0 rounded-2xl pointer-events-none mix-blend-overlay"
                                                       style={{ backgroundPosition: `${glareX}% ${glareY}%`, backgroundSize: '200% 200%' }}
                                                   />

@@ -5,6 +5,7 @@ import { db, auth, signInWithEmailAndPassword } from '../firebase';
 import {
   collection, query, where, getDocs, doc, getDoc, addDoc, serverTimestamp
 } from 'firebase/firestore';
+import { cacheEventAttendees, cacheStaffPasses } from '../utils/offlineCache';
 import {
   QrCode, Wifi, WifiOff, ShieldCheck, AlertCircle, User, Phone, Briefcase,
   ChevronRight, Camera, RefreshCw, CheckCircle2, X, ArrowLeft, Calendar,
@@ -230,6 +231,8 @@ const DeviceLogin = () => {
   };
 
   // ─── Step 5: Save Session + Launch ─────────────────────────────────────────
+  const [syncStatus, setSyncStatus] = useState({ phase: 'idle', count: 0, total: 0 });
+
   const handleFinish = async (skipPhoto = false) => {
     setSaving(true);
     const now = new Date().toISOString();
@@ -275,7 +278,33 @@ const DeviceLogin = () => {
     localStorage.setItem('eventpro_device_session', JSON.stringify(session));
     localStorage.setItem('eventpro_gate_config', JSON.stringify(selectedGate));
 
+    // ─── Preload & cache event data for offline scanning ─────────────────────
     setSaving(false);
+    setStep('syncing');
+    setSyncStatus({ phase: 'attendees', count: 0, total: 0 });
+
+    try {
+      // Fetch all attendees for this event
+      const attendeeQ = query(collection(db, 'attendees'), where('eventId', '==', selectedEvent.id));
+      const attendeeSnap = await getDocs(attendeeQ);
+      const attendees = attendeeSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setSyncStatus({ phase: 'attendees', count: attendees.length, total: attendees.length });
+      await cacheEventAttendees(selectedEvent.id, attendees);
+
+      // Fetch all staff passes
+      setSyncStatus({ phase: 'staff', count: 0, total: 0 });
+      const staffQ = query(collection(db, 'staffPasses'));
+      const staffSnap = await getDocs(staffQ);
+      const staff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setSyncStatus({ phase: 'staff', count: staff.length, total: staff.length });
+      await cacheStaffPasses(staff);
+
+      console.log(`[DeviceLogin] Offline cache ready: ${attendees.length} attendees, ${staff.length} staff`);
+    } catch (e) {
+      console.warn('[DeviceLogin] Failed to preload event data:', e);
+      // Don't block launch — scanner will fall back to Firestore live queries
+    }
+
     setStep('done');
     setTimeout(() => navigate('/scanner'), 2000);
   };
@@ -334,6 +363,30 @@ const DeviceLogin = () => {
 
       {/* ─── Screens ─── */}
       <AnimatePresence mode="wait">
+
+        {/* SYNCING */}
+        {step === 'syncing' && (
+          <Motion.div key="syncing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="flex flex-col items-center text-center px-8 max-w-sm w-full">
+            <Motion.div className="w-16 h-16 border-2 border-primary border-t-transparent rounded-full mb-6"
+              animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }} />
+            <h2 className="text-2xl font-black text-white mb-2">Syncing Event Data</h2>
+            <p className="text-zinc-500 text-sm mb-4">Downloading attendee badges and staff passes for offline scanning.</p>
+            <div className="w-full space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-400">{syncStatus.phase === 'attendees' ? 'Attendees' : 'Staff Passes'}</span>
+                <span className="text-primary font-bold">{syncStatus.count > 0 ? `${syncStatus.count} loaded` : 'loading…'}</span>
+              </div>
+              <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                <Motion.div className="h-full bg-primary rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{ width: syncStatus.total > 0 ? `${(syncStatus.count / syncStatus.total) * 100}%` : '60%' }}
+                  transition={{ duration: 0.3 }} />
+              </div>
+            </div>
+            <p className="text-zinc-600 text-xs mt-4">You can scan even without internet once complete.</p>
+          </Motion.div>
+        )}
 
         {/* DONE */}
         {step === 'done' && (

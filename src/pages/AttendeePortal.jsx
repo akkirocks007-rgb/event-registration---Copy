@@ -4,8 +4,9 @@ import { AnimatePresence } from 'framer-motion';
 import { Ticket, Calendar, Users, User, LogOut, Sparkles, MapPin, Search, MessageSquare, Gamepad2, Gift, Trophy, Star, Send } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
+import DynamicBadge from '../components/DynamicBadge';
 import { useMotionValue, useTransform, useSpring } from 'framer-motion';
 
 const Ticket3D = ({ uid, name, eventName }) => {
@@ -76,6 +77,7 @@ const AttendeePortal = () => {
   const [networkAttendees, setNetworkAttendees] = useState([]);
   const [points, setPoints] = useState(0);
   const [dataLoading, setDataLoading] = useState(false);
+  const [eventData, setEventData] = useState(null);
 
   // UI state
   const [savedSessions, setSavedSessions] = useState([]);
@@ -108,6 +110,14 @@ const AttendeePortal = () => {
 
     return () => unsub();
   }, [currentUser]);
+
+  // Load event data for badge design
+  useEffect(() => {
+    if (!registration?.eventId) return;
+    getDoc(doc(db, 'events', registration.eventId)).then(snap => {
+      if (snap.exists()) setEventData({ id: snap.id, ...snap.data() });
+    });
+  }, [registration?.eventId]);
 
   // Load agenda once we know the event
   useEffect(() => {
@@ -184,10 +194,11 @@ const AttendeePortal = () => {
                 <motion.div key="badge" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
                   className="p-6 pt-8 flex flex-col items-center">
                   <p className="text-zinc-400 text-center text-sm mb-8">Present this badge at venue scanners or sponsor booths.</p>
-                  <Ticket3D
-                    uid={currentUser?.uid}
-                    name={displayName}
+                  <DynamicBadge
+                    design={eventData?.badgeDesign}
+                    attendee={registration}
                     eventName={registration?.eventName || registration?.eventId || 'Live Event'}
+                    className="mx-auto"
                   />
                   {registration && (
                     <div className="mt-6 w-full p-4 bg-white/5 rounded-2xl border border-white/5 text-center">

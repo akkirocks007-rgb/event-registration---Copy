@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getFunctions, httpsCallable, connectFunctionsEmulator } from "firebase/functions";
 import { getAnalytics } from "firebase/analytics";
@@ -26,8 +26,23 @@ try {
 
 export const analytics = app ? getAnalytics(app) : null;
 
+// Initialize Firestore with offline persistence (IndexedDB)
+let db;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  });
+  console.log("💾 Firestore offline persistence enabled");
+} catch (e) {
+  console.warn("⚠️ Could not enable offline persistence, falling back to default:", e);
+  db = getFirestore(app);
+}
+
+export { db };
+
 // Initialize Services
-export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const functions = getFunctions(app);
 

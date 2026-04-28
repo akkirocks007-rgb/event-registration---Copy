@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import PageWrapper from '../components/PageWrapper';
@@ -23,6 +23,7 @@ import AgendaManager from '../components/AgendaManager';
 import { AnimatePresence } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import FormattedDateInput from '../components/FormattedDateInput';
+import DynamicBadge from '../components/DynamicBadge';
 import { db, auth, RecaptchaVerifier, signInWithPhoneNumber } from '../firebase';
 import { collection, query, where, getDocs, deleteDoc, doc, updateDoc, addDoc, serverTimestamp, getDoc, setDoc, onSnapshot, increment } from 'firebase/firestore';
 import { useAuth } from '../hooks/useAuth';
@@ -308,11 +309,14 @@ const AdminDashboard = () => {
   const [showNewTicketModal, setShowNewTicketModal] = useState(false);
   const [newTicket, setNewTicket] = useState({ name: '', description: '', price: 'Free', qty: 100, bookedQty: 0, type: 'Public', categoryType: 'standard' });
 
-  const [badgeElements, setBadgeElements] = useState([
+  const defaultBadgeElements = [
     { id: 'qr', label: 'QR Code', x: 50, y: 300, scale: 1 },
     { id: 'name', label: 'Attendee Name', x: 50, y: 150, scale: 1.2, size: '2xl' },
     { id: 'role', label: 'Ticket Category', x: 50, y: 200, scale: 1, color: 'text-primary' },
-  ]);
+  ];
+  const badgeCanvasRef = useRef(null);
+  const [badgeElements, setBadgeElements] = useState(defaultBadgeElements);
+  const [editingBadgeElementId, setEditingBadgeElementId] = useState(null);
 
   const [, setSpatialStats] = useState([]);
 
@@ -325,7 +329,7 @@ const AdminDashboard = () => {
         y: 250, 
         scale: 1 
     };
-    setBadgeElements([...badgeElements, newEl]);
+    setBadgeElements(prev => { const next = [...prev, newEl]; saveBadgeDesign(next); return next; });
   };
 
   const [showSpotRegistrationModal, setShowSpotRegistrationModal] = useState(false);
@@ -335,17 +339,47 @@ const AdminDashboard = () => {
   const [spotOtp, setSpotOtp] = useState(['', '', '', '', '', '']);
   const [spotConfirmation, setSpotConfirmation] = useState(null);
   const [spotAuthError, setSpotAuthError] = useState(null);
+  const [spotRegisteredAttendee, setSpotRegisteredAttendee] = useState(null);
 
   const removeBadgeElement = (id) => {
     if (id === 'qr') return; // Protect QR
-    setBadgeElements(badgeElements.filter(el => el.id !== id));
+    setBadgeElements(prev => { const next = prev.filter(el => el.id !== id); saveBadgeDesign(next); return next; });
+  };
+
+  const updateBadgeElement = (id, updater) => {
+    setBadgeElements(prev => {
+      const next = prev.map(el => el.id === id ? (typeof updater === 'function' ? updater(el) : { ...el, ...updater }) : el);
+      saveBadgeDesign(next);
+      return next;
+    });
   };
 
   const updateBadgeElementScale = (id, newScale) => {
-    setBadgeElements(badgeElements.map(el => 
-        el.id === id ? { ...el, scale: parseFloat(newScale) } : el
-    ));
+    updateBadgeElement(id, { scale: parseFloat(newScale) });
   };
+
+  // Persist badge design to the selected event document.
+  const saveBadgeDesign = async (next) => {
+    if (!selectedEventId) return;
+    try {
+      await updateDoc(doc(db, "events", selectedEventId), { badgeDesign: next });
+      setMyEvents(prev => prev.map(e => e.id === selectedEventId ? { ...e, badgeDesign: next } : e));
+      setEventData(prev => prev ? { ...prev, badgeDesign: next } : prev);
+    } catch (err) {
+      console.error("Failed to save badge design:", err);
+    }
+  };
+
+  // Load badge design for the currently selected event.
+  useEffect(() => {
+    if (!eventData) { setBadgeElements(defaultBadgeElements); return; }
+    const loaded = Array.isArray(eventData.badgeDesign) ? eventData.badgeDesign : [];
+    if (loaded.length > 0) {
+      setBadgeElements(loaded);
+    } else {
+      setBadgeElements(defaultBadgeElements);
+    }
+  }, [eventData]);
 
   const [giveaways, setGiveaways] = useState([]);
   const [newGiveaway, setNewGiveaway] = useState({ name: '', emoji: '🎁', totalQty: 100, eligibleTickets: ['All'] });
@@ -694,15 +728,10 @@ const AdminDashboard = () => {
         setAttendees(prev => [{ ...newEntry, id: docRef.id }, ...prev]);
         setTickets(prev => prev.map(t => t.name === spotAttendee.ticket ? { ...t, bookedQty: (t.bookedQty || 0) + 1 } : t));
 
-        // 3. Finalize
-        alert("✅ Identity Verified. Printing Badge...");
-        setTimeout(() => {
-            setIsPrinting(false);
-            setShowSpotRegistrationModal(false);
-            setSpotAttendee({ firstName: '', lastName: '', email: '', company: '', designation: '', phone: '', ticket: 'General Delegate' });
-            setSpotStep('details');
-            setSpotOtp(['', '', '', '', '', '']);
-        }, 2000);
+        // 3. Show badge preview
+        setSpotRegisteredAttendee({ ...newEntry, id: docRef.id });
+        setIsPrinting(false);
+        setSpotStep('preview');
     } catch {
         setSpotAuthError("Invalid code. Please try again.");
         setIsPrinting(false);
@@ -2542,40 +2571,41 @@ const AdminDashboard = () => {
           {activeTab === 'designer' && (
             <div className="col-span-12 grid grid-cols-12 gap-8">
                 <div className="col-span-7 bg-black/50 rounded-3xl p-12 flex items-center justify-center border border-white/5 relative overflow-hidden">
-                    {/* Background decoration */}
                     <div className="absolute inset-0 bg-mesh opacity-30"></div>
-                    
-                    {/* The Badge Canvas */}
-                    <motion.div 
+
+                    <motion.div
+                        ref={badgeCanvasRef}
                         className="w-[350px] h-[500px] bg-white rounded-xl shadow-2xl relative overflow-hidden flex flex-col items-center p-8 text-slate-900"
                         layoutId="badge-preview"
                     >
-                        {/* Pre-printed template indicator */}
                         <div className="absolute inset-0 border-4 border-dashed border-zinc-200 pointer-events-none"></div>
-                        
-                        {/* Draggable Elements */}
+
                         {badgeElements.map((el) => (
-                                <motion.div
-                                    key={el.id}
-                                    drag
-                                    dragMomentum={false}
-                                    onDragEnd={(e, info) => {
-                                        const newElements = badgeElements.map(item => 
-                                            item.id === el.id ? { ...item, x: item.x + info.offset.x, y: item.y + info.offset.y } : item
+                            <motion.div
+                                key={el.id}
+                                drag
+                                dragMomentum={false}
+                                dragConstraints={{ left: 0, top: 0, right: 310, bottom: 460 }}
+                                onDragEnd={(e, info) => {
+                                    setBadgeElements(prev => {
+                                        const next = prev.map(item =>
+                                            item.id === el.id ? { ...item, x: Math.max(0, Math.min(310, item.x + info.offset.x)), y: Math.max(0, Math.min(460, item.y + info.offset.y)) } : item
                                         );
-                                        setBadgeElements(newElements);
-                                    }}
-                                    className={`absolute top-0 left-0 cursor-move select-none p-2 rounded hover:bg-primary/10 border border-transparent hover:border-primary/20 transition-shadow ${el.size === '2xl' ? 'text-3xl font-black uppercase' : 'font-bold text-sm'} ${el.color || 'text-slate-900'}`}
-                                    animate={{ 
-                                        x: el.x, 
-                                        y: el.y,
-                                        scale: el.scale || 1
-                                    }}
-                                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                                >
+                                        saveBadgeDesign(next);
+                                        return next;
+                                    });
+                                }}
+                                className={`absolute top-0 left-0 cursor-move select-none p-2 rounded hover:bg-primary/10 border border-transparent hover:border-primary/20 transition-shadow ${el.size === '2xl' ? 'text-3xl font-black uppercase' : el.size === 'xl' ? 'text-2xl font-bold' : 'font-bold text-sm'} ${el.color || 'text-slate-900'}`}
+                                animate={{
+                                    x: el.x,
+                                    y: el.y,
+                                    scale: el.scale || 1
+                                }}
+                                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                            >
                                 {el.id === 'qr' ? (
                                     <div className="bg-white p-2 rounded shadow-sm border border-zinc-100">
-                                        <QRCodeSVG 
+                                        <QRCodeSVG
                                             value="BADGE-SAMPLE-GT-X921"
                                             size={100}
                                             level="M"
@@ -2602,7 +2632,7 @@ const AdminDashboard = () => {
                                 </button>
                                 <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl p-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20">
                                     {['email', 'company', 'job', 'venue'].map(type => (
-                                        <button 
+                                        <button
                                             key={type}
                                             onClick={() => addBadgeElement(type)}
                                             className="w-full text-left p-2 hover:bg-white/5 rounded text-xs capitalize text-zinc-400 hover:text-white"
@@ -2613,44 +2643,92 @@ const AdminDashboard = () => {
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div className="space-y-6">
                             <div>
                                 <label className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-3 block">Element Settings</label>
                                 <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                                     {badgeElements.map(el => (
-                                        <div key={el.id} className="p-4 bg-white/5 rounded-xl border border-white/10 group">
-                                            <div className="flex justify-between items-center mb-4">
+                                        <div key={el.id} className="p-4 bg-white/5 rounded-xl border border-white/10">
+                                            <div className="flex justify-between items-center mb-3">
                                                 <div className="flex items-center gap-2">
                                                     <span className="font-bold text-sm text-white">{el.label}</span>
                                                 </div>
                                                 <div className="flex gap-1">
                                                     {el.id !== 'qr' && (
-                                                        <button 
+                                                        <button
                                                             onClick={() => removeBadgeElement(el.id)}
                                                             className="p-1.5 hover:bg-red-500/10 rounded text-zinc-500 hover:text-red-400 transition-colors"
                                                         >
                                                             <Trash2 className="w-3.5 h-3.5" />
                                                         </button>
                                                     )}
-                                                    <button className="p-1.5 hover:bg-white/10 rounded text-zinc-500 hover:text-white transition-colors">
+                                                    <button
+                                                        onClick={() => setEditingBadgeElementId(editingBadgeElementId === el.id ? null : el.id)}
+                                                        className={`p-1.5 rounded transition-colors ${editingBadgeElementId === el.id ? 'bg-primary/20 text-primary' : 'hover:bg-white/10 text-zinc-500 hover:text-white'}`}
+                                                    >
                                                         <Settings className="w-3.5 h-3.5" />
                                                     </button>
                                                 </div>
                                             </div>
-                                            
+
+                                            {editingBadgeElementId === el.id && (
+                                                <div className="mb-3 p-3 bg-black/30 rounded-lg space-y-2">
+                                                    <div>
+                                                        <label className="text-[10px] text-zinc-500 font-bold uppercase">Label</label>
+                                                        <input
+                                                            type="text"
+                                                            value={el.label}
+                                                            onChange={(e) => updateBadgeElement(el.id, { label: e.target.value })}
+                                                            className="w-full bg-zinc-800/50 border border-white/10 rounded px-2 py-1 text-xs text-white mt-0.5"
+                                                        />
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div>
+                                                            <label className="text-[10px] text-zinc-500 font-bold uppercase">Color</label>
+                                                            <select
+                                                                value={el.color || 'text-slate-900'}
+                                                                onChange={(e) => updateBadgeElement(el.id, { color: e.target.value })}
+                                                                className="w-full bg-zinc-800/50 border border-white/10 rounded px-2 py-1 text-xs text-white mt-0.5"
+                                                            >
+                                                                <option value="text-slate-900">Black</option>
+                                                                <option value="text-primary">Primary</option>
+                                                                <option value="text-red-600">Red</option>
+                                                                <option value="text-emerald-600">Green</option>
+                                                                <option value="text-blue-600">Blue</option>
+                                                                <option value="text-amber-600">Amber</option>
+                                                                <option value="text-purple-600">Purple</option>
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] text-zinc-500 font-bold uppercase">Size</label>
+                                                            <select
+                                                                value={el.size || 'base'}
+                                                                onChange={(e) => updateBadgeElement(el.id, { size: e.target.value })}
+                                                                className="w-full bg-zinc-800/50 border border-white/10 rounded px-2 py-1 text-xs text-white mt-0.5"
+                                                            >
+                                                                <option value="base">Small</option>
+                                                                <option value="lg">Medium</option>
+                                                                <option value="xl">Large</option>
+                                                                <option value="2xl">Extra Large</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             <div className="space-y-3">
                                                 <div>
                                                     <div className="flex justify-between mb-1">
                                                         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Scaling Factor</span>
-                                                        <span className="text-[10px] text-primary font-mono">{el.scale.toFixed(1)}x</span>
+                                                        <span className="text-[10px] text-primary font-mono">{parseFloat(el.scale || 1).toFixed(1)}x</span>
                                                     </div>
-                                                    <input 
-                                                        type="range" 
-                                                        min="0.5" 
-                                                        max="3" 
+                                                    <input
+                                                        type="range"
+                                                        min="0.5"
+                                                        max="3"
                                                         step="0.1"
-                                                        value={el.scale}
+                                                        value={el.scale || 1}
                                                         onChange={(e) => updateBadgeElementScale(el.id, e.target.value)}
                                                         className="w-full accent-primary h-1 bg-white/5 rounded-lg appearance-none cursor-pointer"
                                                     />
@@ -2658,11 +2736,31 @@ const AdminDashboard = () => {
                                                 <div className="grid grid-cols-2 gap-4 pt-1">
                                                     <div>
                                                         <p className="text-[10px] text-zinc-600 mb-1 font-bold">X-POS</p>
-                                                        <input type="number" value={Math.round(el.x)} className="w-full input-base py-1 px-3 h-8 text-xs bg-bg-dark border-white/5" readOnly />
+                                                        <input
+                                                            type="number"
+                                                            min={0}
+                                                            max={310}
+                                                            value={Math.round(el.x)}
+                                                            onChange={(e) => {
+                                                                const v = Math.max(0, Math.min(310, parseInt(e.target.value) || 0));
+                                                                updateBadgeElement(el.id, { x: v });
+                                                            }}
+                                                            className="w-full input-base py-1 px-3 h-8 text-xs bg-bg-dark border-white/5"
+                                                        />
                                                     </div>
                                                     <div>
                                                         <p className="text-[10px] text-zinc-600 mb-1 font-bold">Y-POS</p>
-                                                        <input type="number" value={Math.round(el.y)} className="w-full input-base py-1 px-3 h-8 text-xs bg-bg-dark border-white/5" readOnly />
+                                                        <input
+                                                            type="number"
+                                                            min={0}
+                                                            max={460}
+                                                            value={Math.round(el.y)}
+                                                            onChange={(e) => {
+                                                                const v = Math.max(0, Math.min(460, parseInt(e.target.value) || 0));
+                                                                updateBadgeElement(el.id, { y: v });
+                                                            }}
+                                                            className="w-full input-base py-1 px-3 h-8 text-xs bg-bg-dark border-white/5"
+                                                        />
                                                     </div>
                                                 </div>
                                             </div>
@@ -2672,7 +2770,15 @@ const AdminDashboard = () => {
                             </div>
 
                             <div className="pt-6 border-t border-white/5 space-y-4">
-                                <button onClick={() => alert('✅ Badge design saved globally!')} className="w-full py-3 bg-primary text-white rounded-xl font-bold shadow-lg shadow-primary/20">Save Global Design</button>
+                                <button
+                                    onClick={() => {
+                                        saveBadgeDesign(badgeElements);
+                                        alert('✅ Badge design saved to event!');
+                                    }}
+                                    className="w-full py-3 bg-primary text-white rounded-xl font-bold shadow-lg shadow-primary/20"
+                                >
+                                    Save Design
+                                </button>
                                 <button onClick={() => window.print()} className="w-full py-3 bg-white/5 border border-white/10 text-white rounded-xl font-bold">Print Preview (PDF)</button>
                             </div>
                         </div>
@@ -3474,7 +3580,33 @@ const AdminDashboard = () => {
                   <button onClick={() => !isPrinting && setShowSpotRegistrationModal(false)} className="p-2 hover:bg-white/5 rounded-full text-zinc-500 transition-colors"><XCircle className="w-6 h-6" /></button>
               </div>
 
-              {spotStep === 'details' ? (
+              {spotStep === 'preview' && spotRegisteredAttendee ? (
+                <div className="mb-8 flex flex-col items-center">
+                    <p className="text-zinc-400 text-sm mb-4 text-center">Badge preview for {spotRegisteredAttendee.firstName} {spotRegisteredAttendee.lastName}</p>
+                    <div className="p-4 bg-zinc-800/50 rounded-2xl border border-white/10">
+                        <DynamicBadge
+                            design={eventData?.badgeDesign}
+                            attendee={spotRegisteredAttendee}
+                            eventName={eventData?.name || 'Event'}
+                        />
+                    </div>
+                    <div className="flex gap-3 mt-6 w-full">
+                        <button onClick={() => window.print()} className="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl text-white font-bold hover:bg-white/10 transition-colors text-sm">Print Badge</button>
+                        <button
+                            onClick={() => {
+                                setShowSpotRegistrationModal(false);
+                                setSpotStep('details');
+                                setSpotAttendee({ firstName: '', lastName: '', email: '', company: '', designation: '', phone: '', ticket: 'General Delegate' });
+                                setSpotOtp(['', '', '', '', '', '']);
+                                setSpotRegisteredAttendee(null);
+                            }}
+                            className="flex-1 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 transition-colors text-sm"
+                        >
+                            Done
+                        </button>
+                    </div>
+                </div>
+              ) : spotStep === 'details' ? (
                 <div className="grid grid-cols-2 gap-5 mb-8">
                     <div className="col-span-1">
                         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">First Name *</label>
@@ -3535,12 +3667,13 @@ const AdminDashboard = () => {
                 </div>
               )}
 
+              {spotStep !== 'preview' && (
               <div className="flex gap-4">
                   <button onClick={() => spotStep === 'details' ? setShowSpotRegistrationModal(false) : setSpotStep('details')} disabled={isPrinting} className="flex-1 py-4 bg-white/5 border border-white/10 rounded-2xl text-white font-bold hover:bg-white/10 transition-colors disabled:opacity-30">
                     {spotStep === 'details' ? 'Cancel' : 'Back'}
                   </button>
-                  <button 
-                      onClick={spotStep === 'details' ? requestSpotOTP : verifyAndRegisterSpot} 
+                  <button
+                      onClick={spotStep === 'details' ? requestSpotOTP : verifyAndRegisterSpot}
                       disabled={isPrinting || (spotStep === 'otp' && spotOtp.some(d => !d))}
                       className={`flex-[2] py-4 rounded-2xl font-black transition-all flex items-center justify-center gap-3 shadow-lg ${
                           isPrinting ? 'bg-amber-500 text-white cursor-wait' : 'bg-primary text-white hover:bg-primary/90 shadow-[0_10px_30px_rgba(84,34,255,0.3)]'
@@ -3558,6 +3691,7 @@ const AdminDashboard = () => {
                       )}
                   </button>
               </div>
+              )}
               <div id="spot-recaptcha-container"></div>
             </motion.div>
           </motion.div>
