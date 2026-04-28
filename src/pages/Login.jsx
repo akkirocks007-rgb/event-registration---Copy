@@ -167,15 +167,24 @@ const Login = () => {
         
         // 1. Verify Identity Exists
         let identityFound = false;
+        let userDoc = null;
         if (identifier === 'akshay@indianroar.com' || identifier === '+919220601860' || identifier === '9220601860') {
             identityFound = true;
         } else {
             const superDoc = await getDoc(doc(db, '_config', 'mainframe', 'superusers', identifier.trim()));
             if (superDoc.exists()) identityFound = true;
             else {
+                // Check attendees (visitors)
                 const q = query(collection(db, 'attendees'), where(qField, '==', identifier.trim()));
                 const snap = await getDocs(q);
                 if (!snap.empty) identityFound = true;
+                // Check users (exhibitors, admins, organizers, etc.)
+                const userQ = query(collection(db, 'users'), where(qField, '==', identifier.trim()));
+                const userSnap = await getDocs(userQ);
+                if (!userSnap.empty) {
+                    identityFound = true;
+                    userDoc = userSnap.docs[0].data();
+                }
             }
         }
 
@@ -232,16 +241,29 @@ const Login = () => {
                 exists = true;
                 registryData = superDoc.data();
                 if (!isEmail && registryData.email) emailToAuth = registryData.email;
-            } else if (!isEmail) {
-                // If mobile used, fetch email from attendees
-                let phoneToSearch = identifier.trim();
-                if (phoneToSearch.startsWith('+91')) phoneToSearch = phoneToSearch.replace('+91', '');
+            } else {
+                // Check users collection (exhibitors, staff, etc.)
+                let searchField = isEmail ? 'email' : 'phone';
+                let searchValue = identifier.trim();
+                if (!isEmail && searchValue.startsWith('+91')) searchValue = searchValue.replace('+91', '');
                 
-                const q = query(collection(db, 'attendees'), where('phone', '==', phoneToSearch));
-                const snap = await getDocs(q);
-                if (!snap.empty) {
+                const userQ = query(collection(db, 'users'), where(searchField, '==', searchValue));
+                const userSnap = await getDocs(userQ);
+                if (!userSnap.empty) {
                     exists = true;
-                    if (snap.docs[0].data().email) emailToAuth = snap.docs[0].data().email;
+                    registryData = userSnap.docs[0].data();
+                    if (registryData.email) emailToAuth = registryData.email;
+                } else if (!isEmail) {
+                    // If mobile used, fetch email from attendees
+                    let phoneToSearch = identifier.trim();
+                    if (phoneToSearch.startsWith('+91')) phoneToSearch = phoneToSearch.replace('+91', '');
+                    
+                    const q = query(collection(db, 'attendees'), where('phone', '==', phoneToSearch));
+                    const snap = await getDocs(q);
+                    if (!snap.empty) {
+                        exists = true;
+                        if (snap.docs[0].data().email) emailToAuth = snap.docs[0].data().email;
+                    }
                 }
             }
         }
@@ -284,7 +306,10 @@ const Login = () => {
         }
 
         setTimeout(() => {
-            login({ uid: identifier, email: emailToAuth, role: selectedRole?.id });
+            const userData = registryData 
+                ? { uid: registryData.id || identifier, email: emailToAuth, role: selectedRole?.id, name: registryData.name || registryData.ownerName, ...registryData }
+                : { uid: identifier, email: emailToAuth, role: selectedRole?.id };
+            login(userData);
             navigate('/');
         }, 2000);
     } catch {
@@ -341,7 +366,10 @@ const Login = () => {
         }
         
         setTimeout(() => {
-            login({ uid: identifier, role: selectedRole?.id });
+            const userData = userDoc 
+                ? { uid: userDoc.id || identifier, email: identifier, role: selectedRole?.id, name: userDoc.name || userDoc.ownerName, ...userDoc }
+                : { uid: identifier, email: identifier, role: selectedRole?.id };
+            login(userData);
             navigate('/');
         }, 2000); 
     } catch {
