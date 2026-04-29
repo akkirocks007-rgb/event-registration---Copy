@@ -6,33 +6,48 @@ import { db } from '../firebase';
 import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import {
   Monitor, Plus, Trash2, Edit3, CheckCircle2, Copy, Wifi, WifiOff,
-  MapPin, QrCode, Gift, Tv, Settings, RefreshCw, Clock, User, Phone, Briefcase, History, X, Camera
+  MapPin, QrCode, Gift, Tv, Settings, RefreshCw, Clock, User, Phone, Briefcase, History, X, Camera,
+  UserPlus, CreditCard, Coffee, Zap, Star
 } from 'lucide-react';
 
 const GATE_OPTIONS = [
-  { id: 'main-entrance', label: 'Main Entrance',     icon: '🚪' },
-  { id: 'hall-a',        label: 'Hall A',             icon: '🏛️' },
-  { id: 'hall-b',        label: 'Hall B',             icon: '🏛️' },
-  { id: 'vip-lounge',   label: 'VIP Lounge',          icon: '💎' },
-  { id: 'workshop-1',   label: 'Workshop Room 1',     icon: '📚' },
-  { id: 'workshop-2',   label: 'Workshop Room 2',     icon: '📚' },
-  { id: 'exhibition',   label: 'Exhibition Floor',    icon: '🎪' },
-  { id: 'giveaway',     label: 'Giveaway Station',    icon: '🎁' },
-  { id: 'check-in-desk',label: 'Check-In Desk',       icon: '🖥️' },
+  // Entry gates
+  { id: 'main-entrance',  label: 'Main Entrance',       icon: '🚪', mode: 'entry' },
+  { id: 'hall-a',         label: 'Hall A',              icon: '🏛️', mode: 'entry' },
+  { id: 'hall-b',         label: 'Hall B',              icon: '🏛️', mode: 'entry' },
+  { id: 'vip-lounge',     label: 'VIP Lounge',          icon: '💎', mode: 'entry' },
+  { id: 'workshop-1',     label: 'Workshop Room 1',     icon: '📚', mode: 'entry' },
+  { id: 'workshop-2',     label: 'Workshop Room 2',     icon: '📚', mode: 'entry' },
+  { id: 'exhibition',     label: 'Exhibition Floor',    icon: '🎪', mode: 'entry' },
+  { id: 'exit-gate',      label: 'Exit Gate',           icon: '🚶', mode: 'entry' },
+  // Service stations
+  { id: 'spot-reg-free',  label: 'Spot Reg (Free)',     icon: '📝', mode: 'spot_reg_free' },
+  { id: 'spot-reg-paid',  label: 'Spot Reg (Paid)',     icon: '💵', mode: 'spot_reg_paid' },
+  { id: 'badge-print',    label: 'Badge Printing',      icon: '🎫', mode: 'badge_print' },
+  { id: 'giveaway',       label: 'Giveaway Station',    icon: '🎁', mode: 'giveaway' },
+  { id: 'food-counter',   label: 'Food Counter',        icon: '🍕', mode: 'food_counter' },
+  { id: 'lead-exchange',  label: 'Lead Exchange',       icon: '🤝', mode: 'lead_exchange' },
 ];
 
 const MODE_OPTIONS = [
-  { id: 'scanner',   label: 'Entry Scanner',     icon: QrCode, color: 'text-primary',    bg: 'bg-primary/10',    border: 'border-primary/20' },
-  { id: 'giveaway',  label: 'Giveaway Station',  icon: Gift,   color: 'text-amber-400',  bg: 'bg-amber-400/10',  border: 'border-amber-400/20' },
-  { id: 'jumbotron', label: 'Jumbotron Display', icon: Tv,     color: 'text-zinc-300',   bg: 'bg-white/5',       border: 'border-white/10' },
-  { id: 'supervisor',label: 'Supervisor Desk',   icon: Monitor,color: 'text-green-400',  bg: 'bg-green-400/10',  border: 'border-green-400/20' },
+  { id: 'entry',          label: 'Entry Scanner',       icon: QrCode,   color: 'text-primary',    bg: 'bg-primary/10',    border: 'border-primary/20' },
+  { id: 'spot_reg_free',  label: 'Spot Reg (Free)',     icon: UserPlus, color: 'text-emerald-400',bg: 'bg-emerald-400/10',border: 'border-emerald-400/20' },
+  { id: 'spot_reg_paid',  label: 'Spot Reg (Paid)',     icon: CreditCard,color:'text-amber-400',  bg: 'bg-amber-400/10',  border: 'border-amber-400/20' },
+  { id: 'badge_print',    label: 'Badge Printing',      icon: Star,     color: 'text-indigo-400', bg: 'bg-indigo-400/10', border: 'border-indigo-400/20' },
+  { id: 'giveaway',       label: 'Giveaway Station',    icon: Gift,     color: 'text-pink-400',   bg: 'bg-pink-400/10',   border: 'border-pink-400/20' },
+  { id: 'food_counter',   label: 'Food Counter',        icon: Coffee,   color: 'text-orange-400', bg: 'bg-orange-400/10', border: 'border-orange-400/20' },
+  { id: 'lead_exchange',  label: 'Lead Exchange',       icon: Zap,      color: 'text-cyan-400',   bg: 'bg-cyan-400/10',   border: 'border-cyan-400/20' },
+  { id: 'jumbotron',      label: 'Jumbotron Display',   icon: Tv,       color: 'text-zinc-300',   bg: 'bg-white/5',       border: 'border-white/10' },
+  { id: 'supervisor',     label: 'Supervisor Desk',     icon: Monitor,  color: 'text-green-400',  bg: 'bg-green-400/10',  border: 'border-green-400/20' },
 ];
 
 const SEED_DEVICES = [
-  { id: 'dev-001', name: 'SUNMI-001', pin: '1111', assignedGate: { id: 'main-entrance', label: 'Main Entrance', icon: '🚪' }, mode: 'scanner',   status: 'online',  lastSeen: new Date().toISOString() },
-  { id: 'dev-002', name: 'SUNMI-002', pin: '2222', assignedGate: { id: 'hall-a',        label: 'Hall A',       icon: '🏛️' }, mode: 'scanner',   status: 'offline', lastSeen: new Date(Date.now() - 900000).toISOString() },
-  { id: 'dev-003', name: 'SUNMI-003', pin: '3333', assignedGate: { id: 'vip-lounge',    label: 'VIP Lounge',   icon: '💎' }, mode: 'scanner',   status: 'online',  lastSeen: new Date().toISOString() },
-  { id: 'dev-004', name: 'SUNMI-004', pin: '4444', assignedGate: { id: 'giveaway',      label: 'Giveaway Station', icon: '🎁' }, mode: 'giveaway', status: 'offline', lastSeen: new Date(Date.now() - 3600000).toISOString() },
+  { id: 'dev-001', name: 'SUNMI-001', pin: '1111', assignedGate: { id: 'main-entrance', label: 'Main Entrance', icon: '🚪', mode: 'entry' }, mode: 'entry',          status: 'online',  lastSeen: new Date().toISOString() },
+  { id: 'dev-002', name: 'SUNMI-002', pin: '2222', assignedGate: { id: 'hall-a',        label: 'Hall A',       icon: '🏛️', mode: 'entry' }, mode: 'entry',          status: 'offline', lastSeen: new Date(Date.now() - 900000).toISOString() },
+  { id: 'dev-003', name: 'SUNMI-003', pin: '3333', assignedGate: { id: 'vip-lounge',    label: 'VIP Lounge',   icon: '💎', mode: 'entry' }, mode: 'entry',          status: 'online',  lastSeen: new Date().toISOString() },
+  { id: 'dev-004', name: 'SUNMI-004', pin: '4444', assignedGate: { id: 'giveaway',      label: 'Giveaway Station', icon: '🎁', mode: 'giveaway' }, mode: 'giveaway', status: 'offline', lastSeen: new Date(Date.now() - 3600000).toISOString() },
+  { id: 'dev-005', name: 'SUNMI-005', pin: '5555', assignedGate: { id: 'food-counter',  label: 'Food Counter', icon: '🍕', mode: 'food_counter' }, mode: 'food_counter', status: 'online', lastSeen: new Date().toISOString() },
+  { id: 'dev-006', name: 'SUNMI-006', pin: '6666', assignedGate: { id: 'lead-exchange', label: 'Lead Exchange', icon: '🤝', mode: 'lead_exchange' }, mode: 'lead_exchange', status: 'online', lastSeen: new Date().toISOString() },
 ];
 
 const genPin = () => String(Math.floor(1000 + Math.random() * 9000));

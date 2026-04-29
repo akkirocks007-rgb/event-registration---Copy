@@ -26,15 +26,23 @@ const saveGateConfig = (cfg) => {
 };
 
 const GATE_PRESETS = [
-  { id: 'main-entrance', label: 'Main Entrance',     icon: '🚪', scanMode: 'hybrid' },
-  { id: 'hall-a',        label: 'Hall A',             icon: '🏛️', scanMode: 'hybrid' },
-  { id: 'hall-b',        label: 'Hall B',             icon: '🏛️', scanMode: 'hybrid' },
-  { id: 'vip-lounge',   label: 'VIP Lounge',          icon: '💎', scanMode: 'hybrid' },
-  { id: 'workshop-1',   label: 'Workshop Room 1',     icon: '📚', scanMode: 'qr' },
-  { id: 'workshop-2',   label: 'Workshop Room 2',     icon: '📚', scanMode: 'qr' },
-  { id: 'exhibition',   label: 'Exhibition Floor',    icon: '🎪', scanMode: 'qr' },
-  { id: 'giveaway',     label: 'Giveaway Station',    icon: '🎁', scanMode: 'qr' },
-  { id: 'custom',       label: 'Custom Gate Name',    icon: '✏️', scanMode: 'hybrid' },
+  // Entry gates
+  { id: 'main-entrance',  label: 'Main Entrance',       icon: '🚪', scanMode: 'hybrid', mode: 'entry' },
+  { id: 'hall-a',         label: 'Hall A',              icon: '🏛️', scanMode: 'hybrid', mode: 'entry' },
+  { id: 'hall-b',         label: 'Hall B',              icon: '🏛️', scanMode: 'hybrid', mode: 'entry' },
+  { id: 'vip-lounge',     label: 'VIP Lounge',          icon: '💎', scanMode: 'hybrid', mode: 'entry' },
+  { id: 'workshop-1',     label: 'Workshop Room 1',     icon: '📚', scanMode: 'qr',     mode: 'entry' },
+  { id: 'workshop-2',     label: 'Workshop Room 2',     icon: '📚', scanMode: 'qr',     mode: 'entry' },
+  { id: 'exhibition',     label: 'Exhibition Floor',    icon: '🎪', scanMode: 'qr',     mode: 'entry' },
+  { id: 'exit-gate',      label: 'Exit Gate',           icon: '🚶', scanMode: 'qr',     mode: 'entry' },
+  // Service stations
+  { id: 'spot-reg-free',  label: 'Spot Reg (Free)',     icon: '📝', scanMode: 'qr',     mode: 'spot_reg_free' },
+  { id: 'spot-reg-paid',  label: 'Spot Reg (Paid)',     icon: '💵', scanMode: 'qr',     mode: 'spot_reg_paid' },
+  { id: 'badge-print',    label: 'Badge Printing',      icon: '🎫', scanMode: 'qr',     mode: 'badge_print' },
+  { id: 'giveaway',       label: 'Giveaway Station',    icon: '🎁', scanMode: 'qr',     mode: 'giveaway' },
+  { id: 'food-counter',   label: 'Food Counter',        icon: '🍕', scanMode: 'qr',     mode: 'food_counter' },
+  { id: 'lead-exchange',  label: 'Lead Exchange',       icon: '🤝', scanMode: 'qr',     mode: 'lead_exchange' },
+  { id: 'custom',         label: 'Custom Gate Name',    icon: '✏️', scanMode: 'hybrid', mode: 'entry' },
 ];
 
 // Giveaway items — in production these come from Firestore. Fallback to seeded data.
@@ -90,6 +98,9 @@ const ScannerMode = () => {
   const [staffPasses, setStaffPasses] = useState([]);
   const [scanResult, setScanResult] = useState(null);
   const [giveawaySession, setGiveawaySession] = useState(null); // { attendee, eligibleItems, checkedItems }
+  const [badgePrintSession, setBadgePrintSession] = useState(null); // { attendee }
+  const [foodCounterSession, setFoodCounterSession] = useState(null); // { attendee, eligibleItems, checkedItems }
+  const [leadExchangeSession, setLeadExchangeSession] = useState(null); // { person, isMutual, pointsAwarded }
   const [, setScanCount] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
@@ -156,8 +167,8 @@ const ScannerMode = () => {
   }, [nfcSupported, showGateSetup, gateConfig?.scanMode]);
   const [cameraError, setCameraError] = useState(null);
 
-  const isGiveawayGate = gateConfig?.id === 'giveaway';
-  const isCashGate = !!gateConfig?.collectsCash;
+  const gateMode = gateConfig?.mode || 'entry';
+  const isCashGate = gateMode === 'spot_reg_paid' || !!gateConfig?.collectsCash;
   const [showWalkup, setShowWalkup] = useState(false);
 
   // Zone rules — loaded from Firebase or localStorage cache
@@ -498,8 +509,15 @@ const ScannerMode = () => {
     const gateId = gateConfig?.id || 'main-entrance';
     const gateLabel = gateConfig?.label || 'Main Entrance';
     const eventId = deviceSession?.event?.id;
+    const mode = gateMode;
 
-    // 1. Find subject (Attendee or Staff) — memory first, then IndexedDB cache
+    // ─── Mode: Spot Registration (Free / Paid) ───────────────────────────────
+    if (mode === 'spot_reg_free' || mode === 'spot_reg_paid') {
+      setShowWalkup(true);
+      return;
+    }
+
+    // ─── All other modes need a registered person ────────────────────────────
     let person = attendees.find(a => a.id === scannedId || getAttendeeEmail(a) === scannedId) ||
                  staffPasses.find(s => s.id === scannedId || s.email === scannedId);
 
@@ -522,7 +540,65 @@ const ScannerMode = () => {
     const personName = isStaff ? person.name : getAttendeeName(person);
     const personTicket = isStaff ? person.role : (person.ticketName || 'General Delegate');
 
-    // 1.5 Payment gate — pending tickets need to clear cash collection before any other gate.
+    // ─── Mode: Badge Printing ────────────────────────────────────────────────
+    if (mode === 'badge_print') {
+      if (isStaff) {
+        setScanResult({ type: 'rejected', reason: 'Staff Badge', detail: 'Staff badges are not printed here.' });
+        setTimeout(() => setScanResult(null), 3000);
+        return;
+      }
+      if (person.badgePrinted) {
+        setScanResult({ type: 'duplicate', attendee: person, reason: 'Badge Already Printed', detail: `${personName}'s badge was already printed at ${person.badgePrintedGate || 'this station'}.` });
+        setTimeout(() => setScanResult(null), 4000);
+        return;
+      }
+      setBadgePrintSession({ attendee: person });
+      return;
+    }
+
+    // ─── Mode: Food Counter (Points Redemption) ──────────────────────────────
+    if (mode === 'food_counter' && !isStaff) {
+      const pts = person.points || 0;
+      // Load rewards from cache or fallback to defaults
+      const eligible = DEFAULT_GIVEAWAYS.map(g => ({ ...g, pointsCost: g.id === 1 ? 300 : g.id === 2 ? 500 : g.id === 3 ? 800 : 1000, category: 'food' }));
+      const alreadyRedeemed = person.redeemedRewards || [];
+      const available = eligible.filter(r => !alreadyRedeemed.some(rr => rr.rewardId === r.id) && pts >= r.pointsCost);
+      if (available.length === 0) {
+        setScanResult({ type: 'duplicate', attendee: person, reason: 'No Points', detail: pts === 0 ? 'No points available. Scan exhibitor badges to earn!' : 'Not enough points for any item.' });
+        setTimeout(() => setScanResult(null), 4000);
+        return;
+      }
+      setFoodCounterSession({ attendee: person, points: pts, eligibleItems: available, checkedItems: [] });
+      return;
+    }
+
+    // ─── Mode: Lead Exchange ─────────────────────────────────────────────────
+    if (mode === 'lead_exchange') {
+      // Scan can be initiated by attendee (scanning exhibitor QR) or exhibitor (scanning attendee badge)
+      // For simplicity at a lead-exchange gate: if person is attendee → they are scanning an exhibitor
+      // If person is exhibitor → they are scanning an attendee
+      const isExhibitor = person.role === 'exhibitor' || isStaff;
+      const targetType = isExhibitor ? 'attendee' : 'exhibitor';
+      setLeadExchangeSession({ person, targetType, isMutual: false, pointsAwarded: 0 });
+      return;
+    }
+
+    // ─── Mode: Giveaway ──────────────────────────────────────────────────────
+    if (mode === 'giveaway' && !isStaff) {
+      const eligible = getEligibleGiveaways(person.ticketName || 'General Delegate');
+      const alreadyClaimed = person.claimedGiveaways || [];
+      const unclaimed = eligible.filter(g => !alreadyClaimed.includes(g.id));
+      if (unclaimed.length === 0) {
+        setScanResult({ type: 'duplicate', attendee: person, reason: 'Already Collected', detail: 'This attendee has already collected all eligible giveaway items.' });
+        setTimeout(() => setScanResult(null), 4000);
+        return;
+      }
+      setGiveawaySession({ attendee: person, eligibleItems: unclaimed, checkedItems: [] });
+      return;
+    }
+
+    // ─── Mode: Entry (default) ───────────────────────────────────────────────
+    // 1. Payment gate — pending tickets need to clear cash collection before any other gate.
     if (!isStaff && person.paymentStatus === 'pending') {
       if (isCashGate) {
         setScanResult({
@@ -532,7 +608,6 @@ const ScannerMode = () => {
           detail: `Collect ${person.ticketPrice || 'cash'} from ${personName} for ${personTicket}.`,
         });
         writeScanLog({ gateId, gateName: gateLabel, gateIcon: gateConfig?.icon, attendeeId: person.id, attendeeName: personName, ticketType: personTicket, company: person.company, result: 'payment_pending_seen', reason: 'Awaiting cash collection' });
-        // Don't auto-clear — staff confirms via the Mark Paid button.
         return;
       } else {
         setScanResult({
@@ -551,7 +626,7 @@ const ScannerMode = () => {
     const checkpoints = person.checkpoints || [];
     const alreadyAtThisGate = checkpoints.some(cp => cp.gateId === gateId);
 
-    if (alreadyAtThisGate && !isStaff) { // Staff can scan multiple times (e.g. runner boys)
+    if (alreadyAtThisGate && !isStaff) {
       const time = checkpoints.find(cp => cp.gateId === gateId)?.time;
       setScanResult({
         type: 'duplicate',
@@ -567,10 +642,8 @@ const ScannerMode = () => {
 
     // 3. Zone Access Control
     if (isStaff) {
-      // Staff-specific zone logic
       const assignedZone = person.zone || 'All Access';
       const isAllowed = assignedZone === 'All Access' || assignedZone === gateLabel;
-      
       if (!isAllowed) {
         setScanResult({
           type: 'zone_denied',
@@ -584,20 +657,17 @@ const ScannerMode = () => {
         return;
       }
     } else {
-      // Regular Attendee logic
       const access = checkZoneAccess(person, gateId, zoneRules);
       if (!access.allowed) {
         const gLow = gateLabel.toLowerCase();
         const isWorkshopZone = gLow.includes('workshop');
         const isVIPZone      = gLow.includes('vip') || gLow.includes('lounge') || gLow.includes('platinum');
         const isUpsellTarget = ['delegate', 'visitor', 'day-pass'].includes(mapTicketToId(person.ticketName));
-        
         let upsellType = null;
         if (isUpsellTarget && access.allowUpgrade !== false) {
           if (isWorkshopZone) upsellType = 'workshop-upsell';
           else if (isVIPZone) upsellType = 'vip-upsell';
         }
-
         setScanResult({
           type: 'zone_denied',
           attendee: person,
@@ -613,21 +683,7 @@ const ScannerMode = () => {
       }
     }
 
-    // 4. Handle Giveaway Gate
-    if (isGiveawayGate && !isStaff) {
-      const eligible = getEligibleGiveaways(person.ticketName || 'General Delegate');
-      const alreadyClaimed = person.claimedGiveaways || [];
-      const unclaimed = eligible.filter(g => !alreadyClaimed.includes(g.id));
-      if (unclaimed.length === 0) {
-        setScanResult({ type: 'duplicate', attendee: person, reason: 'Already Collected', detail: 'This attendee has already collected all eligible giveaway items.' });
-        setTimeout(() => setScanResult(null), 4000);
-        return;
-      }
-      setGiveawaySession({ attendee: person, eligibleItems: unclaimed, checkedItems: [] });
-      return;
-    }
-
-    // 5. Grant Access
+    // 4. Grant Access
     const checkpointEntry = { gateId, gateLabel, time: new Date().toISOString() };
     const collectionName = isStaff ? 'staffPasses' : 'attendees';
     const checkpointUpdates = {
@@ -637,7 +693,6 @@ const ScannerMode = () => {
       lastScanTime: serverTimestamp(),
     };
 
-    // Optimistically update local state so duplicate detection works immediately
     if (isStaff) {
       setStaffPasses(prev => prev.map(s => s.id === person.id
         ? { ...s, checkpoints: [...(s.checkpoints || []), checkpointEntry], ...checkpointUpdates }
@@ -661,7 +716,7 @@ const ScannerMode = () => {
     writeScanLog({ gateId, gateName: gateLabel, result: 'approved', reason: 'Success' });
     setScanCount(c => c + 1);
     setTimeout(() => setScanResult(null), 3500);
-  }, [attendees, gateConfig, zoneRules, isCashGate, isGiveawayGate, staffPasses, writeScanLog, writeCheckpoint, cacheReady, deviceSession?.event?.id]);
+  }, [attendees, gateConfig, zoneRules, isCashGate, staffPasses, writeScanLog, writeCheckpoint, cacheReady, deviceSession?.event?.id, gateMode]);
 
   // Update handleScanRef so camera callback always calls latest handleScan
   useEffect(() => {
@@ -1236,6 +1291,217 @@ const ScannerMode = () => {
                   </div>
                 </div>
               )}
+            </Motion.div>
+          </Motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── Badge Print Overlay ─── */}
+      <AnimatePresence>
+        {badgePrintSession && (
+          <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-8">
+            <Motion.div initial={{ scale: 0.85 }} animate={{ scale: 1 }} className="max-w-sm w-full text-center">
+              <div className="w-24 h-24 bg-indigo-500/10 border border-indigo-500/30 rounded-full flex items-center justify-center mx-auto mb-6">
+                <span className="text-4xl">🎫</span>
+              </div>
+              <h2 className="text-3xl font-black text-white mb-1">{getAttendeeName(badgePrintSession.attendee)}</h2>
+              <p className="text-zinc-400 text-sm mb-6">{badgePrintSession.attendee.ticketName || 'General Delegate'}</p>
+              <div className="p-4 bg-white/5 border border-white/10 rounded-2xl mb-6 text-left">
+                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Badge Preview</p>
+                <div className="bg-white rounded-xl p-4 text-black">
+                  <p className="text-xs font-bold text-zinc-400 uppercase">{deviceSession?.event?.name || 'EventPro'}</p>
+                  <p className="text-lg font-black mt-1">{getAttendeeName(badgePrintSession.attendee)}</p>
+                  <p className="text-sm text-zinc-600">{badgePrintSession.attendee.company || ''}</p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-black rounded uppercase">{badgePrintSession.attendee.ticketName || 'Delegate'}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setBadgePrintSession(null)}
+                  className="flex-1 py-4 bg-white/5 border border-white/10 text-white font-bold rounded-xl hover:bg-white/10 transition-colors">Cancel</button>
+                <button onClick={async () => {
+                  const attendee = badgePrintSession.attendee;
+                  try {
+                    await updateDoc(doc(db, 'attendees', attendee.id), {
+                      badgePrinted: true,
+                      badgePrintedAt: serverTimestamp(),
+                      badgePrintedGate: gateConfig?.label || 'Badge Print Station',
+                    });
+                  } catch (e) {
+                    console.warn('Badge print write failed:', e);
+                  }
+                  setBadgePrintSession(null);
+                  setScanResult({ type: 'approved', attendee, reason: 'Badge Printed', detail: `${getAttendeeName(attendee)}'s badge has been printed.` });
+                  setTimeout(() => setScanResult(null), 3000);
+                }}
+                  className="flex-1 py-4 bg-indigo-500 hover:bg-indigo-400 text-white font-black rounded-xl transition-colors">
+                  ✓ Print Badge
+                </button>
+              </div>
+            </Motion.div>
+          </Motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── Food Counter Overlay ─── */}
+      <AnimatePresence>
+        {foodCounterSession && (
+          <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col">
+            <div className="p-6 border-b border-white/5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">🍕</span>
+                  <div>
+                    <p className="text-xs font-bold text-orange-400 uppercase tracking-widest">Food Counter</p>
+                    <h2 className="text-2xl font-black text-white">{getAttendeeName(foodCounterSession.attendee)}</h2>
+                  </div>
+                </div>
+                <div className="px-3 py-1 bg-orange-500/10 border border-orange-500/20 text-orange-400 text-sm font-bold rounded-full">
+                  ⭐ {foodCounterSession.points} pts
+                </div>
+              </div>
+              <p className="text-zinc-500 text-sm">Tap items to redeem. Points will be deducted immediately.</p>
+            </div>
+            <div className="flex-1 p-6 space-y-4 overflow-y-auto">
+              {foodCounterSession.eligibleItems.map(item => {
+                const isChecked = foodCounterSession.checkedItems.includes(item.id);
+                const canAfford = foodCounterSession.points >= item.pointsCost;
+                return (
+                  <Motion.button key={item.id} whileTap={{ scale: 0.97 }}
+                    onClick={() => canAfford && setFoodCounterSession(s => ({
+                      ...s,
+                      checkedItems: isChecked ? s.checkedItems.filter(id => id !== item.id) : [...s.checkedItems, item.id]
+                    }))}
+                    className={`w-full p-5 rounded-2xl border flex items-center gap-5 transition-all ${
+                      isChecked ? 'bg-orange-500/10 border-orange-500/30' :
+                      canAfford ? 'bg-white/5 border-white/10 hover:bg-white/8' : 'bg-white/[0.02] border-white/5 opacity-40'
+                    }`}>
+                    <span className="text-4xl">{item.emoji}</span>
+                    <div className="flex-1 text-left">
+                      <span className="text-xl font-bold text-white block">{item.name}</span>
+                      <span className="text-sm text-orange-400 font-bold">{item.pointsCost} pts</span>
+                    </div>
+                    <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
+                      isChecked ? 'bg-orange-500 border-orange-500' : 'border-white/20'
+                    }`}>
+                      {isChecked && <CheckCircle2 className="w-5 h-5 text-white" strokeWidth={3} />}
+                    </div>
+                  </Motion.button>
+                );
+              })}
+            </div>
+            <div className="p-6 border-t border-white/5 flex gap-4">
+              <button onClick={() => setFoodCounterSession(null)}
+                className="flex-1 py-4 bg-white/5 border border-white/10 text-white font-bold rounded-xl hover:bg-white/10 transition-colors text-lg">Cancel</button>
+              <button disabled={foodCounterSession.checkedItems.length === 0}
+                onClick={async () => {
+                  const { attendee, checkedItems, eligibleItems } = foodCounterSession;
+                  const redeemed = eligibleItems.filter(i => checkedItems.includes(i.id));
+                  const totalCost = redeemed.reduce((sum, i) => sum + i.pointsCost, 0);
+                  const newPoints = (attendee.points || 0) - totalCost;
+                  const redemptionEntries = redeemed.map(r => ({
+                    rewardId: r.id,
+                    name: r.name,
+                    pointsCost: r.pointsCost,
+                    redeemedAt: new Date().toISOString(),
+                    gateId: gateConfig?.id,
+                    gateLabel: gateConfig?.label,
+                  }));
+                  try {
+                    await updateDoc(doc(db, 'attendees', attendee.id), {
+                      points: newPoints,
+                      redeemedRewards: arrayUnion(...redemptionEntries),
+                    });
+                    setAttendees(prev => prev.map(a => a.id === attendee.id
+                      ? { ...a, points: newPoints, redeemedRewards: [...(a.redeemedRewards || []), ...redemptionEntries] }
+                      : a
+                    ));
+                  } catch (e) { console.warn('Food counter write failed:', e); }
+                  setFoodCounterSession(null);
+                  setScanResult({ type: 'approved', attendee, reason: 'Redeemed!', detail: `${redeemed.length} item(s) for ${totalCost} pts. Balance: ${newPoints}` });
+                  setTimeout(() => setScanResult(null), 3500);
+                }}
+                className="flex-1 py-4 bg-orange-500 hover:bg-orange-400 text-white font-black rounded-xl transition-colors text-lg disabled:opacity-40 disabled:cursor-not-allowed">
+                ✓ Redeem ({foodCounterSession.checkedItems.length})
+              </button>
+            </div>
+          </Motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── Lead Exchange Overlay ─── */}
+      <AnimatePresence>
+        {leadExchangeSession && (
+          <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-8">
+            <Motion.div initial={{ scale: 0.85 }} animate={{ scale: 1 }} className="max-w-sm w-full text-center">
+              <div className="w-24 h-24 bg-cyan-500/10 border border-cyan-500/30 rounded-full flex items-center justify-center mx-auto mb-6">
+                <span className="text-4xl">🤝</span>
+              </div>
+              <p className="text-xs font-bold text-cyan-400 uppercase tracking-widest mb-2">Lead Exchange</p>
+              <h2 className="text-3xl font-black text-white mb-1">
+                {leadExchangeSession.targetType === 'exhibitor' ? 'Exhibitor Scanned!' : 'Attendee Scanned!'}
+              </h2>
+              <p className="text-zinc-400 text-sm mb-6">
+                {leadExchangeSession.targetType === 'exhibitor'
+                  ? 'You scanned an exhibitor. Points awarded!'
+                  : 'An exhibitor scanned you. Both earn points!'}
+              </p>
+              <div className="p-4 bg-white/5 border border-white/10 rounded-2xl mb-6 text-left">
+                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Contact</p>
+                <p className="text-white font-bold text-lg">{getAttendeeName(leadExchangeSession.person)}</p>
+                <p className="text-zinc-400 text-sm">{leadExchangeSession.person.company || leadExchangeSession.person.role || ''}</p>
+                <p className="text-cyan-400 text-sm font-bold mt-2">⭐ +{leadExchangeSession.targetType === 'exhibitor' ? '10' : '25'} pts</p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setLeadExchangeSession(null)}
+                  className="flex-1 py-4 bg-white/5 border border-white/10 text-white font-bold rounded-xl hover:bg-white/10 transition-colors">Dismiss</button>
+                <button onClick={async () => {
+                  const { person, targetType } = leadExchangeSession;
+                  const isExhibitor = targetType === 'attendee'; // person IS the exhibitor
+                  const points = isExhibitor ? 5 : 10;
+                  try {
+                    // Write lead to exhibitorLeads
+                    await addDoc(collection(db, 'exhibitorLeads'), {
+                      exhibitorId: isExhibitor ? person.id : 'unknown',
+                      exhibitorName: isExhibitor ? person.name : '',
+                      name: isExhibitor ? 'Attendee' : person.name,
+                      company: person.company || '',
+                      role: person.role || '',
+                      email: person.email || '',
+                      mutualScan: true,
+                      pointsToAttendee: points,
+                      pointsToExhibitor: isExhibitor ? 5 : 0,
+                      createdAt: serverTimestamp(),
+                    });
+                    // Award points to attendee
+                    if (!isExhibitor) {
+                      await updateDoc(doc(db, 'attendees', person.id), {
+                        points: (person.points || 0) + points,
+                        exhibitorScans: arrayUnion({
+                          exhibitorId: 'booth-scanned',
+                          boothNumber: gateConfig?.label || 'Lead Exchange',
+                          timestamp: new Date().toISOString(),
+                          pointsEarned: points,
+                        }),
+                      });
+                      setAttendees(prev => prev.map(a => a.id === person.id
+                        ? { ...a, points: (a.points || 0) + points }
+                        : a
+                      ));
+                    }
+                  } catch (e) { console.warn('Lead exchange write failed:', e); }
+                  setLeadExchangeSession(null);
+                  setScanResult({ type: 'approved', attendee: person, reason: 'Points Earned!', detail: `+${points} pts for lead exchange.` });
+                  setTimeout(() => setScanResult(null), 3000);
+                }}
+                  className="flex-1 py-4 bg-cyan-500 hover:bg-cyan-400 text-white font-black rounded-xl transition-colors">
+                  ✓ Confirm & Award
+                </button>
+              </div>
             </Motion.div>
           </Motion.div>
         )}

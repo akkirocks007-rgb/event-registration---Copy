@@ -167,7 +167,6 @@ const Login = () => {
         
         // 1. Verify Identity Exists
         let identityFound = false;
-        let userDoc = null;
         if (identifier === 'akshay@indianroar.com' || identifier === '+919220601860' || identifier === '9220601860') {
             identityFound = true;
         } else {
@@ -183,7 +182,8 @@ const Login = () => {
                 const userSnap = await getDocs(userQ);
                 if (!userSnap.empty) {
                     identityFound = true;
-                    userDoc = userSnap.docs[0].data();
+                    const docData = userSnap.docs[0].data();
+                    localStorage.setItem('__tmp_login_userdoc', JSON.stringify(docData));
                 }
             }
         }
@@ -367,8 +367,9 @@ const Login = () => {
         }
         
         setTimeout(() => {
-            const userData = userDoc 
-                ? { uid: userDoc.id || identifier, email: identifier, role: selectedRole?.id, name: userDoc.name || userDoc.ownerName, ...userDoc }
+            const tmpDoc = (() => { try { return JSON.parse(localStorage.getItem('__tmp_login_userdoc') || 'null'); } catch { return null; } })();
+            const userData = tmpDoc
+                ? { uid: tmpDoc.id || identifier, email: identifier, role: selectedRole?.id, name: tmpDoc.name || tmpDoc.ownerName, ...tmpDoc }
                 : { uid: identifier, email: identifier, role: selectedRole?.id };
             login(userData);
             navigate('/');

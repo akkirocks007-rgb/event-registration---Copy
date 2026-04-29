@@ -324,7 +324,18 @@ async function seed() {
         paymentMethod: rand(['cash', 'free', 'online']),
         paymentStatus: rand(['pending', 'paid', 'free']),
         createdAt: pastDate(randInt(1, 60)),
-        points: randInt(0, 500)
+        points: randInt(0, 500),
+        exhibitorScans: Math.random() > 0.7 ? [
+          { exhibitorId: `exb-${randInt(1,4)}`, boothNumber: `A-0${randInt(1,4)}`, timestamp: pastDate(randInt(0,5)).toISOString(), pointsEarned: 10 }
+        ] : [],
+        scannedByExhibitors: Math.random() > 0.7 ? [
+          { exhibitorId: `exb-${randInt(1,4)}`, boothNumber: `A-0${randInt(1,4)}`, timestamp: pastDate(randInt(0,5)).toISOString(), pointsEarned: 25 }
+        ] : [],
+        redeemedRewards: Math.random() > 0.8 ? [
+          { rewardId: randInt(1,4), name: 'Free Espresso', pointsCost: 300, redeemedAt: pastDate(randInt(0,3)).toISOString(), gateLabel: 'Food Counter' }
+        ] : [],
+        badgePrinted: Math.random() > 0.3,
+        claimedGiveaways: Math.random() > 0.6 ? [1, 2] : []
       };
       setDoc(ref, attendee);
       attendeeRefs.push({ ref, attendee, event });
@@ -413,6 +424,7 @@ async function seed() {
     const leadCount = randInt(5, 12);
     for (let i = 0; i < leadCount; i++) {
       const ref = createRef('exhibitorLeads');
+      const mutual = Math.random() > 0.5;
       setDoc(ref, {
         exhibitorId: exhibitor.id,
         name: `${rand(firstNames)} ${rand(lastNames)}`,
@@ -423,11 +435,39 @@ async function seed() {
         rating: rand(['Cold', 'Warm', 'Hot']),
         notes: rand(['Interested in enterprise plan', 'Follow up next week', 'Budget approved', 'Need demo', 'Decision maker']),
         time: `${randInt(9, 17)}:${randInt(0, 59).toString().padStart(2, '0')} ${rand(['AM', 'PM'])}`,
+        mutualScan: mutual,
+        attendeeScannedBackAt: mutual ? pastDate(randInt(0, 10)) : null,
+        pointsToAttendee: mutual ? 25 : 10,
+        pointsToExhibitor: mutual ? 5 : 0,
         createdAt: pastDate(randInt(0, 15))
       });
     }
   }
   console.log(`✅ Exhibitor leads seeded`);
+
+  // ─── 11b. REWARDS (redeemable items for gamification) ──────────────────────
+  const rewardItems = [
+    { name: 'Free Espresso', emoji: '☕', pointsCost: 300, totalQty: 100, category: 'food' },
+    { name: 'Cold Drink', emoji: '🥤', pointsCost: 200, totalQty: 150, category: 'food' },
+    { name: 'Lunch Voucher', emoji: '🍕', pointsCost: 800, totalQty: 80, category: 'food' },
+    { name: 'Sticker Pack', emoji: '✨', pointsCost: 500, totalQty: 200, category: 'swag' },
+    { name: 'VIP Lounge Pass', emoji: '💎', pointsCost: 2000, totalQty: 20, category: 'experience' },
+    { name: 'Event T-Shirt', emoji: '👕', pointsCost: 1500, totalQty: 50, category: 'swag' },
+  ];
+  for (const event of events) {
+    for (const r of rewardItems) {
+      const ref = createRef('rewards');
+      setDoc(ref, {
+        eventId: event.id,
+        ...r,
+        remainingQty: r.totalQty,
+        eligibleTickets: ['All'],
+        isActive: true,
+        createdAt: pastDate(randInt(1, 10))
+      });
+    }
+  }
+  console.log(`✅ Rewards seeded (${rewardItems.length * events.length} items)`);
 
   // ─── 12. COMMUNICATIONS ────────────────────────────────────────────────────
   const commTypes = ['onboarding', 'password_reset', 'ticket_confirmation'];

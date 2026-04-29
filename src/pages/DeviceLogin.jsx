@@ -13,14 +13,22 @@ import {
 } from 'lucide-react';
 
 const GATE_PRESETS = [
-  { id: 'main-entrance', label: 'Main Entrance',     icon: '🚪', scanMode: 'hybrid' },
-  { id: 'hall-a',        label: 'Hall A',             icon: '🏛️', scanMode: 'hybrid' },
-  { id: 'hall-b',        label: 'Hall B',             icon: '🏛️', scanMode: 'hybrid' },
-  { id: 'vip-lounge',   label: 'VIP Lounge',          icon: '💎', scanMode: 'hybrid' },
-  { id: 'workshop-1',   label: 'Workshop Room 1',     icon: '📚', scanMode: 'qr' },
-  { id: 'workshop-2',   label: 'Workshop Room 2',     icon: '📚', scanMode: 'qr' },
-  { id: 'exhibition',   label: 'Exhibition Floor',    icon: '🎪', scanMode: 'qr' },
-  { id: 'giveaway',     label: 'Giveaway Station',    icon: '🎁', scanMode: 'qr' },
+  // Entry gates
+  { id: 'main-entrance',  label: 'Main Entrance',       icon: '🚪', scanMode: 'hybrid', mode: 'entry' },
+  { id: 'hall-a',         label: 'Hall A',              icon: '🏛️', scanMode: 'hybrid', mode: 'entry' },
+  { id: 'hall-b',         label: 'Hall B',              icon: '🏛️', scanMode: 'hybrid', mode: 'entry' },
+  { id: 'vip-lounge',     label: 'VIP Lounge',          icon: '💎', scanMode: 'hybrid', mode: 'entry' },
+  { id: 'workshop-1',     label: 'Workshop Room 1',     icon: '📚', scanMode: 'qr',     mode: 'entry' },
+  { id: 'workshop-2',     label: 'Workshop Room 2',     icon: '📚', scanMode: 'qr',     mode: 'entry' },
+  { id: 'exhibition',     label: 'Exhibition Floor',    icon: '🎪', scanMode: 'qr',     mode: 'entry' },
+  { id: 'exit-gate',      label: 'Exit Gate',           icon: '🚶', scanMode: 'qr',     mode: 'entry' },
+  // Service stations
+  { id: 'spot-reg-free',  label: 'Spot Reg (Free)',     icon: '📝', scanMode: 'qr',     mode: 'spot_reg_free' },
+  { id: 'spot-reg-paid',  label: 'Spot Reg (Paid)',     icon: '💵', scanMode: 'qr',     mode: 'spot_reg_paid' },
+  { id: 'badge-print',    label: 'Badge Printing',      icon: '🎫', scanMode: 'qr',     mode: 'badge_print' },
+  { id: 'giveaway',       label: 'Giveaway Station',    icon: '🎁', scanMode: 'qr',     mode: 'giveaway' },
+  { id: 'food-counter',   label: 'Food Counter',        icon: '🍕', scanMode: 'qr',     mode: 'food_counter' },
+  { id: 'lead-exchange',  label: 'Lead Exchange',       icon: '🤝', scanMode: 'qr',     mode: 'lead_exchange' },
 ];
 
 const DeviceLogin = () => {

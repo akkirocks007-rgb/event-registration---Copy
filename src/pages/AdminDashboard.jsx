@@ -880,25 +880,57 @@ const AdminDashboard = () => {
     { id: 'settings', label: 'Dashboard Config', icon: Settings },
   ];
 
-  const [registrationDesign, setRegistrationDesign] = useState({
+  const defaultLandingConfig = {
     themeColor: '#5422ff',
     headerImage: 'https://images.unsplash.com/photo-1540575861501-7ce0e220beff?q=80&w=2070',
     headerOverlay: 40,
-    buttonStyle: 'rounded-full',
-    showAIScan: true,
-    showSocialLinks: true,
     fontFamily: 'Inter',
-    eventTitle: 'Global Tech Summit 2026',
-    eventDate: 'Sept 12-14, 2026',
-    eventLocation: 'San Francisco / Virtual',
-    eventDesc: 'The future of AI, Quantum Computing, and Sustainable Tech all in one place. Join 5,000+ industry leaders for the most influential tech event of the year.',
+    eventTitle: '',
+    eventDate: '',
+    eventLocation: '',
+    eventDesc: '',
     sections: {
         about: true,
         agenda: true,
         speakers: true,
         sponsors: true
     }
-  });
+  };
+  const [registrationDesign, setRegistrationDesign] = useState(defaultLandingConfig);
+  const [previewMode, setPreviewMode] = useState('desktop');
+
+  const saveLandingConfig = async (next) => {
+    if (!selectedEventId) return;
+    try {
+      await updateDoc(doc(db, "events", selectedEventId), { landingConfig: next });
+      setMyEvents(prev => prev.map(e => e.id === selectedEventId ? { ...e, landingConfig: next } : e));
+      setEventData(prev => prev ? { ...prev, landingConfig: next } : prev);
+    } catch (err) {
+      console.error("Failed to save landing config:", err);
+      alert("Could not save site design: " + err.message);
+    }
+  };
+
+  // Load landing config for the currently selected event.
+  useEffect(() => {
+    if (!eventData) { setRegistrationDesign(defaultLandingConfig); return; }
+    const loaded = eventData.landingConfig;
+    if (loaded && typeof loaded === 'object') {
+      setRegistrationDesign({
+        ...defaultLandingConfig,
+        ...loaded,
+        sections: { ...defaultLandingConfig.sections, ...(loaded.sections || {}) }
+      });
+    } else {
+      setRegistrationDesign({
+        ...defaultLandingConfig,
+        eventTitle: eventData.name || '',
+        eventDate: eventData.date || '',
+        eventLocation: eventData.location || '',
+        eventDesc: eventData.description || ''
+      });
+    }
+  }, [eventData]);
 
   const _runHeavySimulation = async (count = 50) => {
     setLoading(true);
@@ -1192,16 +1224,13 @@ const AdminDashboard = () => {
               </h1>
             </div>
             <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full xl:w-auto">
-              <button 
+              <button
                 onClick={() => {
+                  if (!selectedEventId) { alert('Select an event first'); return; }
                   const query = new URLSearchParams({
-                      title: registrationDesign.eventTitle,
-                      date: registrationDesign.eventDate,
-                      loc: registrationDesign.eventLocation,
-                      desc: registrationDesign.eventDesc,
                       color: registrationDesign.themeColor.replace('#', '')
                   }).toString();
-                  window.open(`/event/1?${query}`, '_blank');
+                  window.open(`/event/${selectedEventId}?${query}`, '_blank');
                 }}
                 className="flex-1 xl:flex-none px-3 md:px-4 py-2 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-colors text-white text-[10px] md:text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2"
               >
@@ -1211,7 +1240,11 @@ const AdminDashboard = () => {
                 onClick={() => setShowSpotRegistrationModal(true)}>
                 <UserPlus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Spot Reg</span>
               </button>
-              <button className="btn-primary flex-1 xl:flex-none text-[10px] md:text-xs py-2 px-4" onClick={() => alert('✅ Changes published! Your event page is now live.')}>
+              <button className="btn-primary flex-1 xl:flex-none text-[10px] md:text-xs py-2 px-4" onClick={() => {
+                if (!selectedEventId) { alert('Select an event first'); return; }
+                saveLandingConfig(registrationDesign);
+                alert('✅ Changes published! Your event page is now live.');
+              }}>
                 Publish
               </button>
             </div>
@@ -1521,9 +1554,10 @@ const AdminDashboard = () => {
                              </h3>
                         </div>
                         <div className="space-y-3">
-                             <button 
+                             <button
                                 onClick={() => {
-                                    const code = `<iframe src="${window.location.origin}/event/1?embed=true" width="100%" height="700px" frameborder="0" style="border-radius:24px;"></iframe>`;
+                                    if (!selectedEventId) { alert('Select an event first'); return; }
+                                    const code = `<iframe src="${window.location.origin}/event/${selectedEventId}?embed=true" width="100%" height="700px" frameborder="0" style="border-radius:24px;"></iframe>`;
                                     navigator.clipboard.writeText(code);
                                     alert("Iframe Code Copied!");
                                 }}
@@ -1531,9 +1565,10 @@ const AdminDashboard = () => {
                              >
                                 Copy Standard Iframe
                              </button>
-                             <button 
+                             <button
                                 onClick={() => {
-                                    const code = `<script src="${window.location.origin}/embed.js" data-event="1" data-theme="${registrationDesign.themeColor.replace('#','')}" async></script>\n<div id="event-reg-widget"></div>`;
+                                    if (!selectedEventId) { alert('Select an event first'); return; }
+                                    const code = `<iframe src="${window.location.origin}/event/${selectedEventId}?embed=true" width="100%" height="700px" frameborder="0" style="border-radius:24px;" id="event-reg-widget"></iframe>`;
                                     navigator.clipboard.writeText(code);
                                     alert("JS Snippet Copied!");
                                 }}
@@ -1549,41 +1584,47 @@ const AdminDashboard = () => {
                 <div className="col-span-8 flex flex-col h-[85vh] perspective-1000">
                     <div className="flex justify-between items-center mb-6 px-4">
                         <div className="flex items-center gap-6">
-                             <div className="flex items-center gap-2 bg-white/5 px-4 py-2 rounded-full border border-white/10 cursor-pointer hover:bg-primary/10 transition-all border-primary/20">
-                                 <Monitor className="w-4 h-4 text-primary" />
-                                 <span className="text-[10px] font-black text-white uppercase tracking-widest">Desktop Preview</span>
-                             </div>
-                             <div className="flex items-center gap-2 text-zinc-500 opacity-50">
+                             <button
+                                onClick={() => setPreviewMode('desktop')}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${previewMode === 'desktop' ? 'bg-primary/20 border-primary/40 text-primary' : 'bg-white/5 border-white/10 text-zinc-500 hover:bg-white/10'}`}
+                             >
+                                 <Monitor className="w-4 h-4" />
+                                 <span className="text-[10px] font-black uppercase tracking-widest">Desktop</span>
+                             </button>
+                             <button
+                                onClick={() => setPreviewMode('mobile')}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${previewMode === 'mobile' ? 'bg-primary/20 border-primary/40 text-primary' : 'bg-white/5 border-white/10 text-zinc-500 hover:bg-white/10'}`}
+                             >
                                  <Phone className="w-4 h-4" />
-                                 <span className="text-[10px] font-black uppercase tracking-widest">Mobile Preview</span>
-                             </div>
+                                 <span className="text-[10px] font-black uppercase tracking-widest">Mobile</span>
+                             </button>
                         </div>
                         <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-bold uppercase tracking-widest bg-zinc-900/50 px-4 py-2 rounded-full">
-                             <RefreshCw className="w-3 h-3 text-emerald-400 animate-spin-slow" /> All changes synced
+                             <RefreshCw className="w-3 h-3 text-emerald-400 animate-spin-slow" /> Auto-synced
                         </div>
                     </div>
-                    
-                    <div className="flex-1 rounded-[3rem] bg-zinc-900 border-[16px] border-zinc-800 shadow-3xl overflow-hidden relative group">
+
+                    <div className={`flex-1 rounded-[3rem] bg-zinc-900 border-[16px] border-zinc-800 shadow-3xl overflow-hidden relative group mx-auto transition-all ${previewMode === 'mobile' ? 'max-w-[375px]' : 'w-full'}`}>
                          {/* Full Page Content Scroller */}
                          <div className="absolute inset-0 overflow-y-auto custom-scrollbar-thin bg-[#050505]">
                             <div className="min-h-full" style={{ fontFamily: registrationDesign.fontFamily }}>
                                 {/* Hero Section */}
-                                <div className="h-[450px] relative overflow-hidden">
+                                <div className={`relative overflow-hidden ${previewMode === 'mobile' ? 'h-[500px]' : 'h-[450px]'}`}>
                                     <div className="absolute inset-0 z-10" style={{ background: `linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(5,5,5,1) 100%), rgba(0,0,0,${registrationDesign.headerOverlay/100})` }}></div>
-                                    <motion.img 
+                                    <motion.img
                                         key={registrationDesign.headerImage}
                                         initial={{ scale: 1.1, opacity: 0 }} animate={{ scale: 1, opacity: 0.8 }}
-                                        src={registrationDesign.headerImage} 
-                                        className="w-full h-full object-cover" 
+                                        src={registrationDesign.headerImage}
+                                        className="w-full h-full object-cover"
                                     />
                                     <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-12 text-center">
-                                        <motion.h1 className="text-5xl font-black text-white mb-6 uppercase tracking-tighter leading-none">{registrationDesign.eventTitle}</motion.h1>
-                                        <div className="flex items-center gap-8 mb-8">
+                                        <motion.h1 className={`font-black text-white mb-6 uppercase tracking-tighter leading-none ${previewMode === 'mobile' ? 'text-3xl' : 'text-5xl'}`}>{registrationDesign.eventTitle || eventData?.name}</motion.h1>
+                                        <div className={`flex items-center mb-8 ${previewMode === 'mobile' ? 'flex-col gap-3' : 'gap-8'}`}>
                                             <div className="flex items-center gap-2 text-zinc-300">
-                                                <Calendar className="w-4 h-4 text-primary" /> <span className="text-xs font-bold uppercase">{registrationDesign.eventDate}</span>
+                                                <Calendar className="w-4 h-4 text-primary" /> <span className="text-xs font-bold uppercase">{registrationDesign.eventDate || eventData?.date}</span>
                                             </div>
                                             <div className="flex items-center gap-2 text-zinc-300">
-                                                <MapPin className="w-4 h-4 text-primary" /> <span className="text-xs font-bold uppercase">{registrationDesign.eventLocation}</span>
+                                                <MapPin className="w-4 h-4 text-primary" /> <span className="text-xs font-bold uppercase">{registrationDesign.eventLocation || eventData?.location}</span>
                                             </div>
                                         </div>
                                         <button className="px-8 py-4 rounded-full font-black uppercase text-sm tracking-widest transition-all" style={{ backgroundColor: registrationDesign.themeColor, color: '#fff', boxShadow: `0 10px 40px ${registrationDesign.themeColor}40` }}>
@@ -1594,25 +1635,64 @@ const AdminDashboard = () => {
 
                                 {/* About Section (Conditional) */}
                                 {registrationDesign.sections.about && (
-                                    <div className="px-20 py-24 border-b border-white/5">
+                                    <div className={`border-b border-white/5 ${previewMode === 'mobile' ? 'px-6 py-12' : 'px-20 py-24'}`}>
                                         <div className="grid grid-cols-12 gap-12">
                                             <div className="col-span-12">
                                                 <h2 className="text-[10px] font-black text-primary uppercase tracking-[0.4em] mb-4">Event Narrative</h2>
-                                                <p className="text-2xl font-bold text-white leading-relaxed">{registrationDesign.eventDesc}</p>
+                                                <p className={`font-bold text-white leading-relaxed ${previewMode === 'mobile' ? 'text-lg' : 'text-2xl'}`}>{registrationDesign.eventDesc || eventData?.description}</p>
                                             </div>
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Simulating Agenda/Speakers Placeholder */}
-                                <div className="px-20 py-24 grid grid-cols-3 gap-8 grayscale opacity-20">
-                                     <div className="h-64 rounded-3xl bg-white/5 border border-white/10"></div>
-                                     <div className="h-64 rounded-3xl bg-white/5 border border-white/10"></div>
-                                     <div className="h-64 rounded-3xl bg-white/5 border border-white/10"></div>
-                                </div>
+                                {/* Agenda Section (Conditional) */}
+                                {registrationDesign.sections.agenda && (
+                                    <div className={`border-b border-white/5 ${previewMode === 'mobile' ? 'px-6 py-12' : 'px-20 py-24'}`}>
+                                        <h2 className="text-[10px] font-black text-primary uppercase tracking-[0.4em] mb-6">Agenda</h2>
+                                        <div className="space-y-4">
+                                            {[1,2,3].map(i => (
+                                                <div key={i} className="p-4 bg-white/5 rounded-xl border border-white/10 flex items-center gap-4">
+                                                    <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-xs">{i}</div>
+                                                    <div className="flex-1">
+                                                        <div className="h-3 bg-white/10 rounded w-3/4 mb-2" />
+                                                        <div className="h-2 bg-white/5 rounded w-1/2" />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Speakers Section (Conditional) */}
+                                {registrationDesign.sections.speakers && (
+                                    <div className={`border-b border-white/5 ${previewMode === 'mobile' ? 'px-6 py-12' : 'px-20 py-24'}`}>
+                                        <h2 className="text-[10px] font-black text-primary uppercase tracking-[0.4em] mb-6">Speakers</h2>
+                                        <div className={`grid gap-6 ${previewMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-3'}`}>
+                                            {[1,2,3].map(i => (
+                                                <div key={i} className="p-4 bg-white/5 rounded-xl border border-white/10 text-center">
+                                                    <div className="w-16 h-16 rounded-full bg-white/10 mx-auto mb-3" />
+                                                    <div className="h-3 bg-white/10 rounded w-2/3 mx-auto mb-2" />
+                                                    <div className="h-2 bg-white/5 rounded w-1/2 mx-auto" />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Sponsors Section (Conditional) */}
+                                {registrationDesign.sections.sponsors && (
+                                    <div className={`${previewMode === 'mobile' ? 'px-6 py-12' : 'px-20 py-24'}`}>
+                                        <h2 className="text-[10px] font-black text-primary uppercase tracking-[0.4em] mb-6">Sponsors</h2>
+                                        <div className="flex flex-wrap justify-center gap-6">
+                                            {[1,2,3,4].map(i => (
+                                                <div key={i} className="w-24 h-12 bg-white/5 rounded-lg border border-white/10" />
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                          </div>
-                         
+
                          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-6">
                               <div className="w-32 h-1 bg-zinc-700/50 rounded-full"></div>
                          </div>

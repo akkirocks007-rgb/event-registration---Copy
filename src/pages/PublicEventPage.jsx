@@ -100,12 +100,17 @@ const PublicEventPage = () => {
 
     const params = new URLSearchParams(window.location.search);
     const urlColor = params.get('color');
-    const brandColor = urlColor ? `#${urlColor.replace('#', '')}` : '#10b981';
+    const landing = event?.landingConfig;
+    const configColor = landing?.themeColor;
+    const brandColor = urlColor ? `#${urlColor.replace('#', '')}` : (configColor || '#10b981');
+    const fontFamily = landing?.fontFamily || 'Inter';
     document.documentElement.style.setProperty('--primary-color', brandColor);
     document.documentElement.style.setProperty('--primary-glow', `${brandColor}40`);
+    document.body.style.fontFamily = fontFamily;
     return () => {
       document.documentElement.style.removeProperty('--primary-color');
       document.documentElement.style.removeProperty('--primary-glow');
+      document.body.style.fontFamily = '';
     };
   }, [eventId]);
 
@@ -341,9 +346,11 @@ const PublicEventPage = () => {
     );
   }
 
-  const eventTitle = event.name || event.title || 'Event';
-  const eventDate = event.date || '';
-  const eventDescription = event.description || '';
+  const landing = event?.landingConfig;
+  const eventTitle = landing?.eventTitle || event.name || event.title || 'Event';
+  const eventDate = landing?.eventDate || event.date || '';
+  // eventLocation available via landing?.eventLocation || event.location
+  const eventDescription = landing?.eventDesc || event.description || '';
   const eventStats = Array.isArray(event.stats) ? event.stats : [];
 
   return (

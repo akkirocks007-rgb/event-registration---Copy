@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 
 const DynamicBadge = ({ design, attendee, eventName, width = 350, height = 500, className = '', qrValue }) => {
@@ -44,7 +44,7 @@ const DynamicBadge = ({ design, attendee, eventName, width = 350, height = 500, 
         const colorClass = el.color || 'text-slate-900';
 
         return (
-          <motion.div
+          <Motion.div
             key={el.id}
             className={`absolute top-0 left-0 select-none p-2 ${sizeClass} ${colorClass}`}
             style={{
@@ -59,7 +59,7 @@ const DynamicBadge = ({ design, attendee, eventName, width = 350, height = 500, 
             ) : (
               <span className="whitespace-nowrap">{value}</span>
             )}
-          </motion.div>
+          </Motion.div>
         );
       })}
 

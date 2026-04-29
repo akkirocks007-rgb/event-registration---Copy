@@ -78,6 +78,8 @@ const AttendeePortal = () => {
   const [points, setPoints] = useState(0);
   const [dataLoading, setDataLoading] = useState(false);
   const [eventData, setEventData] = useState(null);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [gamifySubTab, setGamifySubTab] = useState('rewards'); // 'rewards' | 'leaderboard' | 'scans'
 
   // UI state
   const [savedSessions, setSavedSessions] = useState([]);
@@ -108,7 +110,13 @@ const AttendeePortal = () => {
       setDataLoading(false);
     });
 
-    return () => unsub();
+    // Load leaderboard (top 20 attendees by points)
+    const lbQ = query(collection(db, 'attendees'), orderBy('points', 'desc'), limit(20));
+    const lbUnsub = onSnapshot(lbQ, (snap) => {
+      setLeaderboard(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => { unsub(); lbUnsub(); };
   }, [currentUser]);
 
   // Load event data for badge design
@@ -299,19 +307,20 @@ const AttendeePortal = () => {
               {/* ── Gamification tab ── */}
               {activeTab === 'gamify' && (
                 <motion.div key="gamify" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="p-6">
-                  <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold">Gamification</h2>
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold">Rewards</h2>
                     <div className="bg-primary/20 text-primary border border-primary/30 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-1">
                       <Star className="w-4 h-4 fill-primary" /> {points} PTS
                     </div>
                   </div>
 
-                  <div className="bg-gradient-to-br from-indigo-500/20 to-purple-600/20 border border-purple-500/30 rounded-2xl p-6 mb-8 text-center relative overflow-hidden">
+                  {/* Tier Card */}
+                  <div className="bg-gradient-to-br from-indigo-500/20 to-purple-600/20 border border-purple-500/30 rounded-2xl p-5 mb-6 text-center relative overflow-hidden">
                     <div className="absolute inset-0 bg-mesh opacity-50 mix-blend-overlay pointer-events-none" />
-                    <Trophy className={`w-12 h-12 mx-auto mb-3 ${points >= 500 ? 'text-yellow-400' : 'text-zinc-500'}`} />
-                    <h3 className="text-lg font-bold text-white mb-1">{points >= 2000 ? 'Gold' : points >= 500 ? 'Silver' : 'Unranked'}</h3>
-                    <p className="text-xs text-zinc-400 mb-4">
-                      {points < 500 ? `${500 - points} pts to Silver` : points < 2000 ? `${2000 - points} pts to Gold` : 'Top tier reached!'}
+                    <Trophy className={`w-10 h-10 mx-auto mb-2 ${points >= 500 ? 'text-yellow-400' : 'text-zinc-500'}`} />
+                    <h3 className="text-lg font-bold text-white mb-0.5">{points >= 2000 ? 'Gold' : points >= 500 ? 'Silver' : 'Bronze'}</h3>
+                    <p className="text-xs text-zinc-400 mb-3">
+                      {points < 500 ? `${500 - points} pts to Silver` : points < 2000 ? `${2000 - points} pts to Gold` : 'Top tier! Keep scanning exhibitors.'}
                     </p>
                     <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
                       <div className="h-full bg-gradient-to-r from-primary to-purple-500 rounded-full transition-all duration-700"
@@ -319,25 +328,128 @@ const AttendeePortal = () => {
                     </div>
                   </div>
 
-                  <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Digital Swag Bag</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Sub-tabs */}
+                  <div className="flex gap-2 mb-4">
                     {[
-                      { id: 1, name: 'Free Espresso', cost: 500, icon: Gift, color: 'text-orange-400', bg: 'bg-orange-500/20', border: 'border-orange-500/30' },
-                      { id: 2, name: 'VIP Lounge Pass', cost: 2000, icon: Ticket, color: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-500/30' },
-                      { id: 3, name: 'Tech Sticker Pack', cost: 800, icon: Sparkles, color: 'text-blue-400', bg: 'bg-blue-500/20', border: 'border-blue-500/30' },
-                      { id: 4, name: 'Lunch Voucher', cost: 1200, icon: MapPin, color: 'text-green-400', bg: 'bg-green-500/20', border: 'border-green-500/30' },
-                    ].map(swag => (
-                      <div key={swag.id} className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col items-center text-center group cursor-pointer hover:bg-white/10 transition-all">
-                        <div className={`w-12 h-12 rounded-full ${swag.bg} ${swag.border} border flex flex-col justify-center items-center mb-3 group-hover:scale-110 transition-transform`}>
-                          <swag.icon className={`w-6 h-6 ${swag.color}`} />
-                        </div>
-                        <h4 className="font-bold text-white text-xs mb-1">{swag.name}</h4>
-                        <button disabled={points < swag.cost} className={`text-[10px] font-bold px-2 py-1 rounded w-full border transition-colors mt-2 ${
-                          points >= swag.cost ? 'bg-primary/20 text-primary border-primary/30 hover:bg-primary hover:text-white' : 'bg-black/40 text-zinc-600 border-white/5 cursor-not-allowed'
-                        }`}>{swag.cost} PTS</button>
-                      </div>
+                      { id: 'rewards', label: 'Redeem', icon: Gift },
+                      { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
+                      { id: 'scans', label: 'My Scans', icon: Users },
+                    ].map(tab => (
+                      <button key={tab.id} onClick={() => setGamifySubTab(tab.id)}
+                        className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${
+                          gamifySubTab === tab.id ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-white/5 border-white/10 text-zinc-500 hover:text-white'
+                        }`}>
+                        <tab.icon className="w-3.5 h-3.5" /> {tab.label}
+                      </button>
                     ))}
                   </div>
+
+                  {/* Rewards sub-tab */}
+                  {gamifySubTab === 'rewards' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { id: 1, name: 'Free Espresso', cost: 300, icon: '☕', color: 'text-orange-400', bg: 'bg-orange-500/20', border: 'border-orange-500/30' },
+                        { id: 2, name: 'VIP Lounge Pass', cost: 2000, icon: '💎', color: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-500/30' },
+                        { id: 3, name: 'Sticker Pack', cost: 500, icon: '✨', color: 'text-blue-400', bg: 'bg-blue-500/20', border: 'border-blue-500/30' },
+                        { id: 4, name: 'Lunch Voucher', cost: 800, icon: '🍕', color: 'text-green-400', bg: 'bg-green-500/20', border: 'border-green-500/30' },
+                        { id: 5, name: 'Cold Drink', cost: 200, icon: '🥤', color: 'text-cyan-400', bg: 'bg-cyan-500/20', border: 'border-cyan-500/30' },
+                        { id: 6, name: 'Event T-Shirt', cost: 1500, icon: '👕', color: 'text-pink-400', bg: 'bg-pink-500/20', border: 'border-pink-500/30' },
+                      ].map(swag => {
+                        const alreadyRedeemed = registration?.redeemedRewards?.some(r => r.rewardId === swag.id);
+                        return (
+                          <div key={swag.id} className={`bg-white/5 border rounded-xl p-4 flex flex-col items-center text-center transition-all ${
+                            alreadyRedeemed ? 'border-green-500/20 opacity-60' : 'border-white/10 hover:bg-white/10'
+                          }`}>
+                            <div className={`w-10 h-10 rounded-full ${swag.bg} ${swag.border} border flex items-center justify-center mb-2`}>
+                              <span className="text-lg">{swag.icon}</span>
+                            </div>
+                            <h4 className="font-bold text-white text-[11px] mb-0.5">{swag.name}</h4>
+                            {alreadyRedeemed ? (
+                              <span className="text-[9px] font-bold text-green-400">✓ Redeemed</span>
+                            ) : (
+                              <span className={`text-[10px] font-bold ${points >= swag.cost ? 'text-primary' : 'text-zinc-600'}`}>{swag.cost} PTS</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Leaderboard sub-tab */}
+                  {gamifySubTab === 'leaderboard' && (
+                    <div className="space-y-2">
+                      {leaderboard.length === 0 && (
+                        <p className="text-center text-zinc-600 text-sm py-8">No points earned yet. Be the first!</p>
+                      )}
+                      {leaderboard.map((a, i) => (
+                        <div key={a.id} className={`flex items-center gap-3 p-3 rounded-xl border ${
+                          a.id === registration?.id ? 'bg-primary/5 border-primary/20' : 'bg-white/5 border-white/5'
+                        }`}>
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black ${
+                            i === 0 ? 'bg-yellow-500/20 text-yellow-400' :
+                            i === 1 ? 'bg-zinc-400/20 text-zinc-300' :
+                            i === 2 ? 'bg-amber-600/20 text-amber-500' :
+                            'bg-white/5 text-zinc-500'
+                          }`}>{i + 1}</div>
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary/40 to-blue-500/40 flex items-center justify-center font-bold text-white text-xs">
+                            {(a.firstName || 'A').charAt(0)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-white truncate">{a.firstName} {a.lastName}</p>
+                            <p className="text-[10px] text-zinc-500">{a.company || 'Attendee'}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-black text-primary">{a.points || 0}</p>
+                            <p className="text-[9px] text-zinc-500">pts</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* My Scans sub-tab */}
+                  {gamifySubTab === 'scans' && (
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Exhibitors You Scanned</p>
+                        {(registration?.exhibitorScans || []).length === 0 ? (
+                          <p className="text-zinc-600 text-xs py-4 text-center">No scans yet. Visit exhibitor booths and scan their QR codes!</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {(registration?.exhibitorScans || []).map((scan, i) => (
+                              <div key={i} className="flex items-center gap-3 p-3 bg-white/5 border border-white/10 rounded-xl">
+                                <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center text-cyan-400 text-xs font-bold">🏢</div>
+                                <div className="flex-1">
+                                  <p className="text-sm font-bold text-white">{scan.boothNumber || 'Booth'}</p>
+                                  <p className="text-[10px] text-zinc-500">{new Date(scan.timestamp).toLocaleDateString()}</p>
+                                </div>
+                                <span className="text-xs font-black text-cyan-400">+{scan.pointsEarned || 0}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Exhibitors Who Scanned You</p>
+                        {(registration?.scannedByExhibitors || []).length === 0 ? (
+                          <p className="text-zinc-600 text-xs py-4 text-center">No exhibitor scans yet. Let them scan your badge!</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {(registration?.scannedByExhibitors || []).map((scan, i) => (
+                              <div key={i} className="flex items-center gap-3 p-3 bg-white/5 border border-white/10 rounded-xl">
+                                <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 text-xs font-bold">🏢</div>
+                                <div className="flex-1">
+                                  <p className="text-sm font-bold text-white">{scan.boothNumber || 'Booth'}</p>
+                                  <p className="text-[10px] text-zinc-500">{new Date(scan.timestamp).toLocaleDateString()}</p>
+                                </div>
+                                <span className="text-xs font-black text-purple-400">+{scan.pointsEarned || 0}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </motion.div>
               )}
 
