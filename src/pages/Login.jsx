@@ -202,9 +202,10 @@ const Login = () => {
                 const confResult = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
                 setConfirmationResult(confResult);
             } catch (smsErr) {
-                console.error("SMS Failed, proceeding with simulation fallback", smsErr);
-                // Fallback simulation if Firebase quotas/billing block SMS
-                setConfirmationResult(null); 
+                console.error("SMS Failed", smsErr);
+                setAuthError("SMS delivery failed. Please check your phone number or try email login.");
+                setLoading(false);
+                return;
             }
         }
 

@@ -147,7 +147,7 @@ exports.sendConfirmationEmail = onDocumentCreated(
     let eventInfo = {};
     try {
       const eventSnap = await admin.firestore()
-        .collection('events').doc(attendee.eventId || '1').get();
+        .collection('events').doc(attendee.eventId || 'unknown').get();
       if (eventSnap.exists) eventInfo = eventSnap.data();
     } catch (err) {
       logger.warn('Could not load event doc', err);

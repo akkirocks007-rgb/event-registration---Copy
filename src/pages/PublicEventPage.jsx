@@ -710,17 +710,7 @@ const PublicEventPage = () => {
                                                 </div>
                                                 <p className="text-[10px] text-zinc-500">Pay in cash when you arrive at the venue.</p>
                                               </button>
-                                              <button
-                                                type="button"
-                                                disabled
-                                                className="p-3 rounded-xl border border-white/5 bg-white/5 text-left opacity-50 cursor-not-allowed"
-                                              >
-                                                <div className="flex items-center gap-2 mb-1">
-                                                  <CreditCard className="w-4 h-4 text-zinc-400" />
-                                                  <span className="text-sm font-bold text-zinc-300">Online</span>
-                                                </div>
-                                                <p className="text-[10px] text-zinc-500">Coming soon — please choose Pay at Door for now.</p>
-                                              </button>
+                                              {/* Online payment disabled until payment gateway is integrated */}
                                             </div>
                                             {paymentMethod === 'cash' && (
                                               <div className="mt-3 flex items-start gap-2 text-[11px] text-amber-300/90">

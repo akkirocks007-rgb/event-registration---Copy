@@ -25,10 +25,10 @@ export default function MapBuilder() {
   const [zoneRules, setZoneRules] = useState([]);
 
   useEffect(() => {
-    const handleStorage = () => setExhibitors(JSON.parse(localStorage.getItem('exhibitors') || '[]'));
-    handleStorage();
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
+    const unsub = onSnapshot(collection(db, 'exhibitors'), snap => {
+      setExhibitors(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, () => setExhibitors([]));
+    return () => unsub();
   }, []);
   
   useEffect(() => {

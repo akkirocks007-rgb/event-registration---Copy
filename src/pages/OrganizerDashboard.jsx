@@ -231,7 +231,7 @@ const OrganizerDashboard = () => {
                     channels: ['email', 'sms']
                 });
                 commResult = data;
-                console.log("🚀 Onboarding communication result:", data);
+                // Onboarding communication sent
             } catch (commErr) {
                 console.error("Onboarding communication failed:", commErr);
             }
@@ -277,7 +277,7 @@ const OrganizerDashboard = () => {
     const getGatewayStatus = (gateway) => {
         if (!infraConfig) return 'Loading...';
         const config = infraConfig[gateway];
-        if (!config || !config.apiKey || config.apiKey.includes('••••') || config.apiKey === 're_123456789') {
+        if (!config || !config.apiKey || config.apiKey.includes('••••') || !config.apiKey.trim()) {
             return 'Not Configured';
         }
         return config.status || 'Operational';
@@ -287,7 +287,7 @@ const OrganizerDashboard = () => {
         setValidating(prev => ({ ...prev, [gateway]: true }));
         setTimeout(async () => {
             const config = infraConfig[gateway] || {};
-            const isPlaceholder = !config.apiKey || config.apiKey.includes('••••') || config.apiKey === 're_123456789';
+            const isPlaceholder = !config.apiKey || config.apiKey.includes('••••') || !config.apiKey.trim();
             const newStatus = isPlaceholder ? 'Invalid Key' : 'Verified';
             const updatedConfig = { ...infraConfig, [gateway]: { ...config, status: newStatus } };
             await saveInfraConfig(updatedConfig);

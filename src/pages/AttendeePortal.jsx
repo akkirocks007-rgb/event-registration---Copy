@@ -4,7 +4,7 @@ import { AnimatePresence } from 'framer-motion';
 import { Ticket, Calendar, Users, User, LogOut, Sparkles, MapPin, Search, MessageSquare, Gamepad2, Gift, Trophy, Star, Send } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, orderBy, limit, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, limit, doc, getDoc, addDoc } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import DynamicBadge from '../components/DynamicBadge';
 import { useMotionValue, useTransform, useSpring } from 'framer-motion';
@@ -488,18 +488,23 @@ const AttendeePortal = () => {
                     <div className="relative flex items-center gap-2">
                       <input type="text" placeholder="Type a message…" value={msgInput}
                         onChange={e => setMsgInput(e.target.value)}
-                        onKeyPress={e => {
-                          if (e.key === 'Enter' && msgInput.trim()) {
-                            setMessages(prev => [...prev, { id: Date.now(), text: msgInput, type: 'sent', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
-                            setMsgInput('');
+                        onKeyPress={async e => {
+                          if (e.key === 'Enter' && msgInput.trim() && registration?.eventId) {
+                            const msg = { text: msgInput.trim(), sender: currentUser?.uid || 'anonymous', senderName: displayName, createdAt: new Date().toISOString() };
+                            try { await addDoc(collection(db, 'events', registration.eventId, 'messages'), msg); setMsgInput(''); } catch (err) { console.error(err); }
                           }
                         }}
                         className="flex-1 bg-white/5 border border-white/10 rounded-full px-6 py-3 text-sm text-white focus:border-primary/50 outline-none transition-all placeholder-zinc-700 h-10"
                       />
-                      <button onClick={() => {
-                        if (!msgInput.trim()) return;
-                        setMessages(prev => [...prev, { id: Date.now(), text: msgInput, type: 'sent', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
-                        setMsgInput('');
+                      <button onClick={async () => {
+                        if (!msgInput.trim() || !registration?.eventId) return;
+                        const msg = { text: msgInput.trim(), sender: currentUser?.uid || 'anonymous', senderName: displayName, createdAt: new Date().toISOString() };
+                        try {
+                          await addDoc(collection(db, 'events', registration.eventId, 'messages'), msg);
+                          setMsgInput('');
+                        } catch (err) {
+                          console.error('Failed to send message', err);
+                        }
                       }} className={`p-2.5 rounded-full transition-all ${msgInput.trim() ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-white/5 text-zinc-600'}`}>
                         <Send className="w-4 h-4" />
                       </button>

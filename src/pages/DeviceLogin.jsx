@@ -35,7 +35,7 @@ const DeviceLogin = () => {
   const navigate = useNavigate();
 
   // ─── Step System ───────────────────────────────────────────────────────────
-  // 'supervisor-auth' → 'event-select' → 'gate-select' → 'volunteer-details' → 'volunteer-photo' → 'done'
+  // 'supervisor-auth' → 'device-select' → 'volunteer-details' → 'volunteer-photo' → 'syncing' → 'done'
   const [step, setStep] = useState('supervisor-auth');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
@@ -46,13 +46,14 @@ const DeviceLogin = () => {
   const [supervisor, setSupervisor] = useState(null);
   const [authError, setAuthError] = useState(null);
 
-  // Step 2: Event Select
-  const [events, setEvents] = useState([]);
-  const [selectedEvent, setSelectedEvent] = useState(null);
-  const [loadingEvents, setLoadingEvents] = useState(false);
+  // Step 2: Device Select (supervisor picks from their assigned devices)
+  const [devices, setDevices] = useState([]);
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  const [loadingDevices, setLoadingDevices] = useState(false);
 
-  // Step 3: Gate Select
-  const [selectedGate, setSelectedGate] = useState(null);
+  // Derived from selected device
+  const selectedEvent = selectedDevice ? { id: selectedDevice.eventId || selectedDevice.assignedGate?.eventId, name: selectedDevice.eventName || 'Event' } : null;
+  const selectedGate = selectedDevice ? { ...selectedDevice.assignedGate, scanMode: selectedDevice.assignedGate?.scanMode || 'qr' } : null;
 
   // Step 4: Volunteer Details
   const [volunteer, setVolunteer] = useState({ name: '', email: '', phone: '' });
@@ -146,7 +147,7 @@ const DeviceLogin = () => {
             userData = { id: fbUser.uid, email: fbUser.email, name: fbUser.displayName || fbUser.email, role: 'supervisor' };
           }
         } catch {
-          console.log('Firebase auth failed, trying local only');
+          // Firebase auth failed, trying local only
         }
       }
 
@@ -166,8 +167,8 @@ const DeviceLogin = () => {
 
       setSupervisor(userData);
       setAuthStatus('idle');
-      setStep('event-select');
-      fetchEvents(userData);
+      setStep('device-select');
+      fetchDevices(userData);
     } catch (err) {
       console.error('Auth error:', err);
       setAuthStatus('error');
@@ -175,57 +176,31 @@ const DeviceLogin = () => {
     }
   };
 
-  // ─── Step 2: Fetch Events ──────────────────────────────────────────────────
-  const fetchEvents = async (user) => {
-    setLoadingEvents(true);
+  // ─── Step 2: Fetch Devices assigned to this supervisor ─────────────────────
+  const fetchDevices = async (user) => {
+    setLoadingDevices(true);
     try {
-      let q;
-      const role = user.role;
-      if (role === 'admin') {
-        q = query(collection(db, 'events'), where('adminIds', 'array-contains', user.id));
-      } else if (role === 'organizer' || role === 'organiser') {
-        q = query(collection(db, 'events'), where('organizerId', '==', user.id));
-      } else if (role === 'owner') {
-        q = query(collection(db, 'events'), where('ownerId', '==', user.id));
-      } else if (role === 'reseller') {
-        q = query(collection(db, 'events'), where('resellerId', '==', user.id));
-      } else if (role === 'supervisor' && user.assignedEventIds?.length > 0) {
-        // For supervisors with explicit event assignments
-        const chunks = [];
-        for (let i = 0; i < user.assignedEventIds.length; i += 10) {
-          chunks.push(user.assignedEventIds.slice(i, i + 10));
-        }
-        const allEvents = [];
-        for (const chunk of chunks) {
-          const evQ = query(collection(db, 'events'), where('__name__', 'in', chunk));
-          const snap = await getDocs(evQ);
-          allEvents.push(...snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        }
-        setEvents(allEvents);
-        setLoadingEvents(false);
-        return;
+      const devQ = query(collection(db, 'devices'), where('assignedSupervisorId', '==', user.id));
+      const snap = await getDocs(devQ);
+      const devs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Fallback: if no devices assigned, show all devices for demo
+      if (devs.length === 0) {
+        const allQ = query(collection(db, 'devices'));
+        const allSnap = await getDocs(allQ);
+        setDevices(allSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       } else {
-        // Superuser or fallback: get all events
-        q = query(collection(db, 'events'));
+        setDevices(devs);
       }
-
-      const snap = await getDocs(q);
-      setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (e) {
-      console.error('Failed to fetch events:', e);
-      setEvents([]);
+      console.error('Failed to fetch devices:', e);
+      setDevices([]);
     }
-    setLoadingEvents(false);
+    setLoadingDevices(false);
   };
 
-  // ─── Step 3: Gate Select helpers ───────────────────────────────────────────
-  const handleEventSelect = (event) => {
-    setSelectedEvent(event);
-    setStep('gate-select');
-  };
-
-  const handleGateSelect = (gate) => {
-    setSelectedGate(gate);
+  // ─── Step 3: Device Select helper ──────────────────────────────────────────
+  const handleDeviceSelect = (device) => {
+    setSelectedDevice(device);
     setStep('volunteer-details');
   };
 
@@ -244,6 +219,9 @@ const DeviceLogin = () => {
   const handleFinish = async (skipPhoto = false) => {
     setSaving(true);
     const now = new Date().toISOString();
+    const eventId = selectedDevice.eventId || selectedDevice.assignedGate?.eventId || 'unknown';
+    const eventName = selectedDevice.eventName || selectedDevice.assignedGate?.eventName || 'Event';
+    const gate = selectedGate;
 
     const volunteerPayload = {
       name: volunteer.name.trim(),
@@ -260,10 +238,12 @@ const DeviceLogin = () => {
         supervisorId: supervisor.id,
         supervisorName: supervisor.name || supervisor.email,
         supervisorEmail: supervisor.email,
-        eventId: selectedEvent.id,
-        eventName: selectedEvent.name,
-        gateId: selectedGate.id,
-        gateLabel: selectedGate.label,
+        deviceId: selectedDevice.id,
+        deviceName: selectedDevice.name,
+        eventId,
+        eventName,
+        gateId: gate.id,
+        gateLabel: gate.label,
         ...volunteerPayload,
         status: 'active',
         createdAt: serverTimestamp(),
@@ -277,14 +257,15 @@ const DeviceLogin = () => {
     // Save to localStorage for ScannerMode to read
     const session = {
       supervisor: { id: supervisor.id, name: supervisor.name || supervisor.email, email: supervisor.email, role: supervisor.role },
-      event: { id: selectedEvent.id, name: selectedEvent.name },
-      gate: { id: selectedGate.id, label: selectedGate.label, icon: selectedGate.icon, scanMode: selectedGate.scanMode },
+      device: { id: selectedDevice.id, name: selectedDevice.name },
+      event: { id: eventId, name: eventName },
+      gate: { id: gate.id, label: gate.label, icon: gate.icon, scanMode: gate.scanMode },
       volunteer: volunteerPayload,
       volunteerSessionId: sessionId,
       loginTime: now,
     };
     localStorage.setItem('eventpro_device_session', JSON.stringify(session));
-    localStorage.setItem('eventpro_gate_config', JSON.stringify(selectedGate));
+    localStorage.setItem('eventpro_gate_config', JSON.stringify(gate));
 
     // ─── Preload & cache event data for offline scanning ─────────────────────
     setSaving(false);
@@ -292,14 +273,12 @@ const DeviceLogin = () => {
     setSyncStatus({ phase: 'attendees', count: 0, total: 0 });
 
     try {
-      // Fetch all attendees for this event
-      const attendeeQ = query(collection(db, 'attendees'), where('eventId', '==', selectedEvent.id));
+      const attendeeQ = query(collection(db, 'attendees'), where('eventId', '==', eventId));
       const attendeeSnap = await getDocs(attendeeQ);
       const attendees = attendeeSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       setSyncStatus({ phase: 'attendees', count: attendees.length, total: attendees.length });
-      await cacheEventAttendees(selectedEvent.id, attendees);
+      await cacheEventAttendees(eventId, attendees);
 
-      // Fetch all staff passes
       setSyncStatus({ phase: 'staff', count: 0, total: 0 });
       const staffQ = query(collection(db, 'staffPasses'));
       const staffSnap = await getDocs(staffQ);
@@ -307,10 +286,9 @@ const DeviceLogin = () => {
       setSyncStatus({ phase: 'staff', count: staff.length, total: staff.length });
       await cacheStaffPasses(staff);
 
-      console.log(`[DeviceLogin] Offline cache ready: ${attendees.length} attendees, ${staff.length} staff`);
+      // Offline cache ready
     } catch (e) {
       console.warn('[DeviceLogin] Failed to preload event data:', e);
-      // Don't block launch — scanner will fall back to Firestore live queries
     }
 
     setStep('done');
@@ -320,13 +298,13 @@ const DeviceLogin = () => {
   // ─── Logout / Reset ────────────────────────────────────────────────────────
   const handleReset = () => {
     setStep('supervisor-auth');
-    setSupervisor(null); setSelectedEvent(null); setSelectedGate(null);
+    setSupervisor(null); setSelectedDevice(null); setDevices([]);
     setVolunteer({ name: '', email: '', phone: '' }); setPhoto(null);
     setSupervisorEmail(''); setSupervisorPassword(''); setAuthError(null);
   };
 
   // ─── Render helpers ────────────────────────────────────────────────────────
-  const STEPS = ['supervisor-auth', 'event-select', 'gate-select', 'volunteer-details', 'volunteer-photo'];
+  const STEPS = ['supervisor-auth', 'device-select', 'volunteer-details', 'volunteer-photo'];
   const stepIdx = STEPS.indexOf(step);
 
   return (
@@ -338,9 +316,8 @@ const DeviceLogin = () => {
         <div className="flex items-center gap-3">
           {step !== 'supervisor-auth' && step !== 'done' && (
             <button onClick={() => {
-              if (step === 'event-select') handleReset();
-              else if (step === 'gate-select') setStep('event-select');
-              else if (step === 'volunteer-details') setStep('gate-select');
+              if (step === 'device-select') handleReset();
+              else if (step === 'volunteer-details') setStep('device-select');
               else if (step === 'volunteer-photo') { stopCamera(); setPhoto(null); setStep('volunteer-details'); }
             }} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-zinc-400 hover:text-white">
               <ArrowLeft className="w-4 h-4" />
@@ -405,8 +382,9 @@ const DeviceLogin = () => {
               <ShieldCheck className="w-12 h-12 text-green-400" strokeWidth={1.5} />
             </Motion.div>
             <p className="text-xs font-bold text-green-400 uppercase tracking-widest mb-2">Session Active</p>
-            <h2 className="text-3xl font-black text-white mb-1">{selectedEvent?.name}</h2>
-            <p className="text-zinc-300 text-lg font-semibold mb-2">{selectedGate?.icon} {selectedGate?.label}</p>
+            <h2 className="text-2xl font-black text-white mb-1">{selectedDevice?.name}</h2>
+            <p className="text-zinc-300 text-lg font-semibold mb-1">{selectedGate?.icon} {selectedGate?.label}</p>
+            <p className="text-zinc-500 text-sm mb-3">{selectedEvent?.name}</p>
             <div className="w-full p-4 bg-white/5 border border-white/10 rounded-2xl mb-3 flex items-center gap-4 text-left">
               {photo && <img src={photo} alt="volunteer" className="w-12 h-12 rounded-xl object-cover flex-shrink-0 border border-white/10" />}
               <div>
@@ -473,38 +451,46 @@ const DeviceLogin = () => {
           </Motion.div>
         )}
 
-        {/* STEP 2: EVENT SELECT */}
-        {step === 'event-select' && (
-          <Motion.div key="events" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}
-            className="w-full max-w-sm px-6">
-            <h2 className="text-2xl font-black text-white mb-1">Select Event</h2>
-            <p className="text-zinc-500 text-sm mb-6">Choose the active event for this scanning session.</p>
+        {/* STEP 2: DEVICE SELECT */}
+        {step === 'device-select' && (
+          <Motion.div key="devices" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}
+            className="w-full max-w-md px-6">
+            <h2 className="text-2xl font-black text-white mb-1">Select Device</h2>
+            <p className="text-zinc-500 text-sm mb-6">Choose which terminal you are operating today.</p>
 
-            {loadingEvents ? (
+            {loadingDevices ? (
               <div className="flex items-center justify-center py-12">
                 <Motion.div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full"
                   animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }} />
               </div>
-            ) : events.length === 0 ? (
+            ) : devices.length === 0 ? (
               <div className="text-center py-12 text-zinc-500">
-                <Calendar className="w-10 h-10 mx-auto mb-3 text-zinc-600" />
-                <p className="text-sm">No events found for your account.</p>
+                <Monitor className="w-10 h-10 mx-auto mb-3 text-zinc-600" />
+                <p className="text-sm">No devices assigned to you.</p>
+                <p className="text-zinc-600 text-xs mt-1">Contact your admin to assign devices.</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {events.map(ev => (
-                  <Motion.button key={ev.id} whileTap={{ scale: 0.98 }} onClick={() => handleEventSelect(ev)}
+                {devices.map(dev => (
+                  <Motion.button key={dev.id} whileTap={{ scale: 0.98 }} onClick={() => handleDeviceSelect(dev)}
                     className={`w-full p-4 rounded-2xl border text-left transition-all ${
-                      selectedEvent?.id === ev.id
+                      selectedDevice?.id === dev.id
                         ? 'bg-primary/10 border-primary/30'
                         : 'bg-white/5 border-white/10 hover:bg-white/[0.07]'
                     }`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-white font-bold">{ev.name}</p>
-                        <p className="text-zinc-500 text-xs mt-0.5">{ev.date} · {ev.location}</p>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                        <Monitor className="w-5 h-5 text-zinc-400" />
                       </div>
-                      <ChevronRight className="w-5 h-5 text-zinc-500" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white font-bold text-sm">{dev.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-lg">{dev.assignedGate?.icon}</span>
+                          <span className="text-zinc-500 text-xs">{dev.assignedGate?.label}</span>
+                          <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-zinc-500 border border-white/5">{dev.mode}</span>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-zinc-500 flex-shrink-0" />
                     </div>
                   </Motion.button>
                 ))}
@@ -513,38 +499,17 @@ const DeviceLogin = () => {
           </Motion.div>
         )}
 
-        {/* STEP 3: GATE SELECT */}
-        {step === 'gate-select' && (
-          <Motion.div key="gates" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}
-            className="w-full max-w-sm px-6">
-            <h2 className="text-2xl font-black text-white mb-1">Select Gate</h2>
-            <p className="text-zinc-500 text-sm mb-6">Which entry point is this device at?</p>
-            <div className="grid grid-cols-2 gap-3">
-              {GATE_PRESETS.map(gate => (
-                <Motion.button key={gate.id} whileTap={{ scale: 0.95 }} onClick={() => handleGateSelect(gate)}
-                  className={`p-4 rounded-2xl border text-center transition-all ${
-                    selectedGate?.id === gate.id
-                      ? 'bg-primary/10 border-primary/30'
-                      : 'bg-white/5 border-white/10 hover:bg-white/[0.07]'
-                  }`}>
-                  <span className="text-2xl mb-2 block">{gate.icon}</span>
-                  <p className="text-white text-sm font-bold">{gate.label}</p>
-                  <p className="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">{gate.scanMode}</p>
-                </Motion.button>
-              ))}
-            </div>
-          </Motion.div>
-        )}
-
         {/* STEP 4: VOLUNTEER DETAILS */}
         {step === 'volunteer-details' && (
           <Motion.div key="volunteer" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}
             className="w-full max-w-sm px-6">
             <div className="flex items-center gap-3 p-3 bg-white/5 border border-white/10 rounded-xl mb-5">
-              <span className="text-xl">{selectedGate?.icon}</span>
+              <div className="w-8 h-8 bg-primary/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Monitor className="w-4 h-4 text-primary" />
+              </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-bold text-primary uppercase tracking-widest">{selectedEvent?.name}</p>
-                <p className="text-white font-bold truncate text-sm">{selectedGate?.label}</p>
+                <p className="text-xs font-bold text-primary uppercase tracking-widest">{selectedDevice?.name}</p>
+                <p className="text-white font-bold truncate text-sm">{selectedGate?.icon} {selectedGate?.label}</p>
               </div>
             </div>
 

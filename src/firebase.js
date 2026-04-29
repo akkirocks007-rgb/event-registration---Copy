@@ -19,7 +19,7 @@ const firebaseConfig = {
 let app;
 try {
   app = initializeApp(firebaseConfig);
-  console.log("🚀 Firebase Mainframe Initialized");
+  // Firebase initialized successfully
 } catch (e) {
   console.error("❌ Firebase Initialization Failed:", e);
 }
@@ -34,9 +34,9 @@ try {
       tabManager: persistentMultipleTabManager()
     })
   });
-  console.log("💾 Firestore offline persistence enabled");
+  // Firestore offline persistence enabled
 } catch (e) {
-  console.warn("⚠️ Could not enable offline persistence, falling back to default:", e);
+  // Could not enable offline persistence, falling back to default
   db = getFirestore(app);
 }
 

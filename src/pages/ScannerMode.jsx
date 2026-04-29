@@ -45,7 +45,7 @@ const GATE_PRESETS = [
   { id: 'custom',         label: 'Custom Gate Name',    icon: '✏️', scanMode: 'hybrid', mode: 'entry' },
 ];
 
-// Giveaway items — in production these come from Firestore. Fallback to seeded data.
+// Fallback giveaways if Firestore has none configured
 const DEFAULT_GIVEAWAYS = [
   { id: 1, name: 'Branded Kit Bag',  emoji: '🎒', eligibleTickets: ['All'] },
   { id: 2, name: 'Event T-Shirt',    emoji: '👕', eligibleTickets: ['All'] },
@@ -53,9 +53,10 @@ const DEFAULT_GIVEAWAYS = [
   { id: 4, name: 'Speaker Gift Box', emoji: '🎁', eligibleTickets: ['Speaker RSVP'] },
 ];
 
-const getEligibleGiveaways = (ticketName) => {
-  return DEFAULT_GIVEAWAYS.filter(g =>
-    g.eligibleTickets.includes('All') || g.eligibleTickets.includes(ticketName)
+const getEligibleGiveaways = (giveaways, ticketName) => {
+  const source = giveaways?.length > 0 ? giveaways : DEFAULT_GIVEAWAYS;
+  return source.filter(g =>
+    (g.eligibleTickets || []).includes('All') || (g.eligibleTickets || []).includes(ticketName)
   );
 };
 
@@ -109,6 +110,7 @@ const ScannerMode = () => {
   const [selectedSession, setSelectedSession] = useState(null);
   const [pairingCodeInput, setPairingCodeInput] = useState('');
   const [pairingStatus, setPairingStatus] = useState('idle'); // 'idle' | 'pairing' | 'success' | 'error'
+  const [eventGiveaways, setEventGiveaways] = useState([]);
   
   const AGENDA_SESSIONS = [
     { id: 'k1', title: 'Keynote: UI Future' },
@@ -120,6 +122,17 @@ const ScannerMode = () => {
   const [nfcSupported] = useState('NDEFReader' in window);
   const [nfcActive, setNfcActive]       = useState(false);
   const [, setNfcError]         = useState('');
+
+  // Load giveaways from Firestore for the current event
+  useEffect(() => {
+    const eventId = deviceSession?.event?.id || gateConfig?.eventId;
+    if (!eventId) return;
+    const q = query(collection(db, 'giveaways'), where('eventId', '==', eventId));
+    const unsub = onSnapshot(q, snap => {
+      setEventGiveaways(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, () => {});
+    return () => unsub();
+  }, [deviceSession?.event?.id, gateConfig?.eventId]);
 
   // NFC Listener
   useEffect(() => {
@@ -142,7 +155,7 @@ const ScannerMode = () => {
 
         reader.onreading = (event) => {
           const { serialNumber } = event;
-          console.log(`NFC Tag detected: ${serialNumber}`);
+          // NFC tag detected
           // Use the serial number as the unique ID for the attendee
           handleScanRef.current(serialNumber);
         };
@@ -390,7 +403,7 @@ const ScannerMode = () => {
     }
     const remaining = await getScanQueue();
     setOfflineQueueCount(remaining.length);
-    if (flushed > 0) console.log(`[Scanner] Flushed ${flushed} queued operations`);
+    // Queue flush complete
   }, []);
 
   // Listen for online events and flush queue
@@ -426,7 +439,7 @@ const ScannerMode = () => {
         const staffSnap = await getDocs(query(collection(db, 'staffPasses')));
         const staff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         await cacheStaffPasses(staff);
-        console.log(`[Scanner] Cache refreshed: ${attendees.length} attendees, ${staff.length} staff`);
+        // Cache refreshed
       } catch (e) { console.warn('[Scanner] Cache refresh failed:', e); }
     }, 60000);
     return () => clearInterval(interval);
@@ -559,8 +572,14 @@ const ScannerMode = () => {
     // ─── Mode: Food Counter (Points Redemption) ──────────────────────────────
     if (mode === 'food_counter' && !isStaff) {
       const pts = person.points || 0;
-      // Load rewards from cache or fallback to defaults
-      const eligible = DEFAULT_GIVEAWAYS.map(g => ({ ...g, pointsCost: g.id === 1 ? 300 : g.id === 2 ? 500 : g.id === 3 ? 800 : 1000, category: 'food' }));
+      // Load rewards from Firestore or fallback to defaults
+      const eligible = eventGiveaways.length > 0
+        ? eventGiveaways.map(g => ({ ...g, pointsCost: g.pointsCost || 500, category: 'food' }))
+        : [
+            { id: 'f1', name: 'Free Espresso', emoji: '☕', pointsCost: 300, category: 'food' },
+            { id: 'f2', name: 'Cold Drink', emoji: '🥤', pointsCost: 200, category: 'food' },
+            { id: 'f3', name: 'Lunch Voucher', emoji: '🍕', pointsCost: 800, category: 'food' },
+          ];
       const alreadyRedeemed = person.redeemedRewards || [];
       const available = eligible.filter(r => !alreadyRedeemed.some(rr => rr.rewardId === r.id) && pts >= r.pointsCost);
       if (available.length === 0) {
@@ -585,7 +604,7 @@ const ScannerMode = () => {
 
     // ─── Mode: Giveaway ──────────────────────────────────────────────────────
     if (mode === 'giveaway' && !isStaff) {
-      const eligible = getEligibleGiveaways(person.ticketName || 'General Delegate');
+      const eligible = getEligibleGiveaways(eventGiveaways, person.ticketName || 'General Delegate');
       const alreadyClaimed = person.claimedGiveaways || [];
       const unclaimed = eligible.filter(g => !alreadyClaimed.includes(g.id));
       if (unclaimed.length === 0) {
@@ -716,7 +735,7 @@ const ScannerMode = () => {
     writeScanLog({ gateId, gateName: gateLabel, result: 'approved', reason: 'Success' });
     setScanCount(c => c + 1);
     setTimeout(() => setScanResult(null), 3500);
-  }, [attendees, gateConfig, zoneRules, isCashGate, staffPasses, writeScanLog, writeCheckpoint, cacheReady, deviceSession?.event?.id, gateMode]);
+  }, [attendees, gateConfig, zoneRules, isCashGate, staffPasses, writeScanLog, writeCheckpoint, cacheReady, deviceSession?.event?.id, gateMode, eventGiveaways]);
 
   // Update handleScanRef so camera callback always calls latest handleScan
   useEffect(() => {

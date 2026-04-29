@@ -158,7 +158,7 @@ export async function cacheEventAttendees(eventId, attendees) {
   await putAll(STORES.attendees, normalized);
   await setMeta('lastEventId', eventId);
   await setMeta('lastCacheTime', new Date().toISOString());
-  console.log(`[OfflineCache] Cached ${normalized.length} attendees for event ${eventId}`);
+  // Attendees cached
 }
 
 /** Cache staff passes */
@@ -170,7 +170,7 @@ export async function cacheStaffPasses(staff) {
   }));
   await clearStore(STORES.staff);
   await putAll(STORES.staff, normalized);
-  console.log(`[OfflineCache] Cached ${normalized.length} staff passes`);
+  // Staff passes cached
 }
 
 /** Load cached attendees for the current event */
@@ -223,7 +223,7 @@ export async function clearAllCache() {
   await clearStore(STORES.scanQueue);
   await clearStore(STORES.metadata);
   dbPromise = null;
-  console.log('[OfflineCache] All cache cleared');
+  // All cache cleared
 }
 
 // ─── Scan Operation Queue ──────────────────────────────────────────────────

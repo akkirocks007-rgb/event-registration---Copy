@@ -3,7 +3,7 @@ import { AnimatePresence } from 'framer-motion';
 import Sidebar from '../components/Sidebar';
 import PageWrapper from '../components/PageWrapper';
 import { db } from '../firebase';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, addDoc, deleteDoc, doc, updateDoc, serverTimestamp, where } from 'firebase/firestore';
 import {
   Monitor, Plus, Trash2, Edit3, CheckCircle2, Copy, Wifi, WifiOff,
   MapPin, QrCode, Gift, Tv, Settings, RefreshCw, Clock, User, Phone, Briefcase, History, X, Camera,
@@ -61,27 +61,42 @@ const DeviceManager = ({ embedded = false }) => {
   const [historyDeviceId, setHistoryDeviceId] = useState(null);
   const [newDevice, setNewDevice] = useState({
     name: '',
-    mode: 'scanner',
+    mode: 'entry',
     assignedGate: GATE_OPTIONS[0],
     pin: genPin(),
+    assignedSupervisorId: '',
+    assignedSupervisorName: '',
     assignedTo: { name: '', phone: '', designation: '' },
   });
+  const [supervisors, setSupervisors] = useState([]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'devices'), snap => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setDevices(data.length > 0 ? data : SEED_DEVICES);
-    }, () => setDevices(SEED_DEVICES));
+      setDevices(data);
+    }, () => setDevices([]));
+    return () => unsub();
+  }, []);
+
+  // Load supervisors for assignment
+  useEffect(() => {
+    const q = query(collection(db, 'users'), where('role', 'in', ['supervisor', 'admin', 'organiser', 'organizer']));
+    const unsub = onSnapshot(q, snap => {
+      setSupervisors(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, () => setSupervisors([]));
     return () => unsub();
   }, []);
 
   const createDevice = async () => {
     if (!newDevice.name.trim()) return;
+    const supervisor = supervisors.find(s => s.id === newDevice.assignedSupervisorId);
     const payload = {
       name: newDevice.name.trim(),
       mode: newDevice.mode,
       assignedGate: newDevice.assignedGate,
       pin: newDevice.pin,
+      assignedSupervisorId: newDevice.assignedSupervisorId || null,
+      assignedSupervisorName: supervisor?.name || supervisor?.email || null,
       assignedTo: newDevice.assignedTo.name.trim() ? newDevice.assignedTo : null,
       currentHolder: null,
       status: 'offline',
@@ -93,7 +108,7 @@ const DeviceManager = ({ embedded = false }) => {
     } catch {
       setDevices(prev => [...prev, { ...payload, id: `dev-${Date.now()}` }]);
     }
-    setNewDevice({ name: '', mode: 'scanner', assignedGate: GATE_OPTIONS[0], pin: genPin(), assignedTo: { name: '', phone: '', designation: '' } });
+    setNewDevice({ name: '', mode: 'entry', assignedGate: GATE_OPTIONS[0], pin: genPin(), assignedSupervisorId: '', assignedSupervisorName: '', assignedTo: { name: '', phone: '', designation: '' } });
     setShowAddDevice(false);
   };
 
@@ -137,7 +152,7 @@ const DeviceManager = ({ embedded = false }) => {
           <h2 className="text-3xl font-bold text-white">Device Registry</h2>
           <p className="text-zinc-400 text-sm mt-1">Manage POS terminals, assign gates & generate PIN codes for field staff.</p>
         </div>
-        <button onClick={() => { setNewDevice({ name: '', mode: 'scanner', assignedGate: GATE_OPTIONS[0], pin: genPin() }); setShowAddDevice(true); }}
+        <button onClick={() => { setNewDevice({ name: '', mode: 'entry', assignedGate: GATE_OPTIONS[0], pin: genPin(), assignedSupervisorId: '', assignedSupervisorName: '' }); setShowAddDevice(true); }}
           className="btn-primary flex items-center gap-2">
           <Plus className="w-4 h-4" /> Register Device
         </button>
@@ -175,6 +190,7 @@ const DeviceManager = ({ embedded = false }) => {
                   <th className="text-left px-6 py-3">Device</th>
                   <th className="text-left px-6 py-3">Assigned Gate</th>
                   <th className="text-left px-6 py-3">Mode</th>
+                  <th className="text-left px-6 py-3">Supervisor</th>
                   <th className="text-left px-6 py-3">Custodian</th>
                   <th className="text-left px-6 py-3">PIN</th>
                   <th className="text-left px-6 py-3">Status</th>
@@ -251,6 +267,20 @@ const DeviceManager = ({ embedded = false }) => {
                           <ModeIcon className="w-3 h-3" />
                           {modeInfo?.label || device.mode}
                         </span>
+                      </td>
+
+                      {/* Supervisor */}
+                      <td className="px-6 py-4">
+                        {device.assignedSupervisorName ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-primary text-[10px] font-bold">
+                              {(device.assignedSupervisorName).charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-sm text-zinc-300 font-medium">{device.assignedSupervisorName}</span>
+                          </div>
+                        ) : (
+                          <span className="text-zinc-600 text-xs">Not assigned</span>
+                        )}
                       </td>
 
                       {/* Custodian */}
@@ -334,10 +364,10 @@ const DeviceManager = ({ embedded = false }) => {
           <div className="mt-8 p-6 glass-panel border-primary/10 bg-primary/3">
             <h3 className="font-bold text-white mb-4 flex items-center gap-2"><Settings className="w-4 h-4 text-primary" /> How to activate a device</h3>
             <ol className="space-y-2 text-sm text-zinc-400">
-              <li className="flex gap-3"><span className="w-5 h-5 bg-primary/20 text-primary rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">1</span> Register the device above with a name, gate, and mode.</li>
-              <li className="flex gap-3"><span className="w-5 h-5 bg-primary/20 text-primary rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">2</span> Share the 4-digit PIN with the field supervisor for that gate.</li>
-              <li className="flex gap-3"><span className="w-5 h-5 bg-primary/20 text-primary rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">3</span> On the SUNMI device, open EventPro and navigate to <strong className="text-zinc-200">/device-login</strong>.</li>
-              <li className="flex gap-3"><span className="w-5 h-5 bg-primary/20 text-primary rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">4</span> Enter the PIN — the device auto-configures and enters scanner/giveaway mode instantly.</li>
+              <li className="flex gap-3"><span className="w-5 h-5 bg-primary/20 text-primary rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">1</span> Register the device with a name, gate, mode, and assign a supervisor.</li>
+              <li className="flex gap-3"><span className="w-5 h-5 bg-primary/20 text-primary rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">2</span> The supervisor logs in with email/password and sees only their assigned devices.</li>
+              <li className="flex gap-3"><span className="w-5 h-5 bg-primary/20 text-primary rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">3</span> Supervisor selects a device — event, gate, and mode are pre-configured.</li>
+              <li className="flex gap-3"><span className="w-5 h-5 bg-primary/20 text-primary rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">4</span> Supervisor assigns a volunteer (name, photo) who operates the scanner.</li>
             </ol>
           </div>
     </>
@@ -384,6 +414,25 @@ const DeviceManager = ({ embedded = false }) => {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* Assign Supervisor */}
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">Assigned Supervisor <span className="text-zinc-700 normal-case font-normal">(required)</span></label>
+                  <select value={newDevice.assignedSupervisorId}
+                    onChange={e => {
+                      const s = supervisors.find(sv => sv.id === e.target.value);
+                      setNewDevice(d => ({ ...d, assignedSupervisorId: e.target.value, assignedSupervisorName: s?.name || s?.email || '' }));
+                    }}
+                    className="w-full px-4 py-3 bg-zinc-900 border border-white/10 rounded-xl text-white outline-none focus:border-primary/50">
+                    <option value="">— Select a Supervisor —</option>
+                    {supervisors.map(s => (
+                      <option key={s.id} value={s.id}>{s.name || s.email} ({s.role})</option>
+                    ))}
+                  </select>
+                  {supervisors.length === 0 && (
+                    <p className="text-[11px] text-amber-400 mt-1.5">No supervisors found. Create supervisor accounts in User Management first.</p>
+                  )}
                 </div>
 
                 {/* Pre-assign Custodian */}

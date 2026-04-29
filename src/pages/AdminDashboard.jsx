@@ -1009,11 +1009,11 @@ const AdminDashboard = () => {
     })));
 
     if (stopReason) {
-        alert(`⚠️ Simulation Stopped: ${stopReason}. Total injected in this batch: ${addedCount}.`);
+        alert(`⚠️ Simulation Stopped: ${stopReason}. Total injected in this batch: ${addedCount}.\n\nℹ️ This is local preview data only — it will NOT be saved to Firestore.`);
     } else if (addedCount > 10) {
-        alert(`🚀 Heavy Simulation Complete. Injected ${addedCount} attendees across available categories.`);
+        alert(`🚀 Heavy Simulation Complete. Injected ${addedCount} attendees across available categories.\n\nℹ️ This is local preview data only — it will NOT be saved to Firestore.`);
     } else {
-        alert(`⚡ Simulated ${addedCount} attendees added.`);
+        alert(`⚡ Simulated ${addedCount} attendees added.\n\nℹ️ This is local preview data only — it will NOT be saved to Firestore.`);
     }
     setLoading(false);
   };
@@ -1994,65 +1994,28 @@ const AdminDashboard = () => {
               <div className="col-span-12 space-y-6">
                 <div className="grid grid-cols-3 gap-6">
                   <div className="glass-panel p-6 border-none bg-white/5">
-                    <h4 className="text-zinc-500 text-xs font-bold uppercase mb-4 tracking-widest">Total Sent</h4>
-                    <p className="text-3xl font-bold text-white">12,400</p>
+                    <h4 className="text-zinc-500 text-xs font-bold uppercase mb-4 tracking-widest">Total Registrations</h4>
+                    <p className="text-3xl font-bold text-white">{attendees.length}</p>
                   </div>
                   <div className="glass-panel p-6 border-l-4 border-l-primary bg-white/5 border-t-0 border-r-0 border-b-0">
-                    <h4 className="text-zinc-500 text-xs font-bold uppercase mb-4 tracking-widest">Open Rate</h4>
-                    <p className="text-3xl font-bold text-white">64.2%</p>
+                    <h4 className="text-zinc-500 text-xs font-bold uppercase mb-4 tracking-widest">Checked In</h4>
+                    <p className="text-3xl font-bold text-white">{attendees.filter(a => a.status === 'checked-in').length}</p>
                   </div>
                   <div className="glass-panel p-6 border-none bg-white/5">
-                    <h4 className="text-zinc-500 text-xs font-bold uppercase mb-4 tracking-widest">CTR</h4>
-                    <p className="text-3xl font-bold text-white">12.8%</p>
+                    <h4 className="text-zinc-500 text-xs font-bold uppercase mb-4 tracking-widest">Pending Approvals</h4>
+                    <p className="text-3xl font-bold text-white">{pendingApprovals.filter(p => p.status === 'pending').length}</p>
                   </div>
                 </div>
 
                 <div className="glass-panel p-6">
                   <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-white">Active Campaigns</h2>
-                    <button onClick={() => alert('🚀 Campaign Builder is coming in v2.0! Use Automation tab for now.')}
+                    <h2 className="text-xl font-bold text-white">Campaigns</h2>
+                    <button onClick={() => handleTabChange('automation')}
                       className="btn-primary py-2 text-sm flex items-center gap-2">
-                      <Plus className="w-4 h-4" /> New Campaign
+                      <Zap className="w-4 h-4" /> Manage in Automation
                     </button>
                   </div>
-                  
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="text-zinc-500 text-xs uppercase border-b border-white/5">
-                        <th className="pb-4">Campaign Name</th>
-                        <th className="pb-4">Type</th>
-                        <th className="pb-4">Targeting</th>
-                        <th className="pb-4">Status</th>
-                        <th className="pb-4">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {[
-                        { name: 'Early Bird Invite', type: 'Email', target: 'Registered Users', status: 'Sent' },
-                        { name: 'Last Call WhatsApp', type: 'WhatsApp', target: 'Pending Invites', status: 'Draft' },
-                        { name: 'Speaker Announcement', type: 'Email', target: 'Followers', status: 'Scheduled' },
-                      ].map(campaign => (
-                        <tr key={campaign.name} className="group hover:bg-white/[0.02]">
-                          <td className="py-4 font-medium text-white">{campaign.name}</td>
-                          <td className="py-4 text-sm">
-                            <span className="text-xs px-2 py-1 bg-zinc-800 rounded text-zinc-300">{campaign.type}</span>
-                          </td>
-                          <td className="py-4 text-zinc-400 text-sm">{campaign.target}</td>
-                          <td className="py-4">
-                            <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded inline-flex items-center gap-1 ${
-                              campaign.status === 'Sent' ? 'bg-green-500/10 text-green-400' : 
-                              campaign.status === 'Draft' ? 'bg-zinc-500/10 text-zinc-500' : 'bg-primary/10 text-primary'
-                            }`}>
-                              {campaign.status}
-                            </span>
-                          </td>
-                          <td className="py-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button className="text-xs text-primary hover:underline">Edit</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <p className="text-zinc-500 text-sm">Campaign management has moved to the <button onClick={() => handleTabChange('automation')} className="text-primary hover:underline">Automation tab</button>. Configure email triggers, templates, and auto-responders there.</p>
                 </div>
               </div>
             )}
@@ -2078,7 +2041,7 @@ const AdminDashboard = () => {
                             try {
                                 const docRef = await addDoc(collection(db, "staffPasses"), newStaffPass);
                                 setStaffPasses(prev => [...prev, { ...newStaffPass, firestoreId: docRef.id }]);
-                                console.log(`Speaker Pass generated for ${speaker.name}`);
+                                // Speaker pass generated
                             } catch (error) {
                                 console.error("Error creating speaker pass:", error);
                                 console.error("Failed to generate speaker pass");
@@ -2686,7 +2649,7 @@ const AdminDashboard = () => {
                                 {el.id === 'qr' ? (
                                     <div className="bg-white p-2 rounded shadow-sm border border-zinc-100">
                                         <QRCodeSVG
-                                            value="BADGE-SAMPLE-GT-X921"
+                                            value={spotRegisteredAttendee?.id || spotRegisteredAttendee?.confirmationId || spotRegisteredAttendee?.email || 'SAMPLE-QR'}
                                             size={100}
                                             level="M"
                                         />
@@ -2890,7 +2853,7 @@ const AdminDashboard = () => {
                                     </div>
                                 </button>
                             ))}
-                            <button onClick={() => alert('🛠️ Custom Trigger Builder coming soon in v2.0!')}
+                            <button onClick={() => alert('🛠️ Custom triggers can be configured by editing automationConfigs in Firestore directly.')}
                               className="w-full py-4 border border-dashed border-white/10 rounded-2xl text-xs text-zinc-600 font-bold hover:text-white transition-all uppercase tracking-widest">
                                 + Add Custom Trigger
                             </button>
@@ -2919,10 +2882,15 @@ const AdminDashboard = () => {
                             <div className="flex gap-3">
                                 <button onClick={async () => {
                                   setSavingTemplate(true);
-                                  // Simulating Firebase save - in real app we'd setDoc in 'automationConfigs'
-                                  await new Promise(r => setTimeout(r, 1000));
-                                  setSavingTemplate(false);
-                                  alert('Template Saved & Synced with Scanners!');
+                                  try {
+                                    if (!selectedEventId) { alert('Select an event first'); return; }
+                                    await updateDoc(doc(db, 'events', selectedEventId), { automationConfigs: automationTemplates });
+                                    alert('Template Saved & Synced!');
+                                  } catch (err) {
+                                    alert('Save failed: ' + err.message);
+                                  } finally {
+                                    setSavingTemplate(false);
+                                  }
                                 }} className="btn-primary py-2.5 text-sm px-6 flex items-center gap-2">
                                   {savingTemplate ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                                   {savingTemplate ? 'Syncing...' : 'Save & Sync'}
@@ -3345,7 +3313,21 @@ const AdminDashboard = () => {
                               title="Preview Pass">
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button onClick={() => alert(`📧 Pass sent to ${pass.email}`)}
+                            <button onClick={async () => {
+                              const sendComm = httpsCallable(functions, 'sendOnboardingCommunication');
+                              try {
+                                const { data } = await sendComm({
+                                  to: pass.email,
+                                  name: pass.name,
+                                  credentials: { email: pass.email, password: 'Use your existing login' },
+                                  role: pass.role,
+                                  channels: ['email']
+                                });
+                                alert(`✅ Pass notification sent to ${pass.email}\n${data.results?.email?.previewUrl ? '🔗 Preview: ' + data.results.email.previewUrl : ''}`);
+                              } catch (err) {
+                                alert('❌ Failed to send: ' + err.message);
+                              }
+                            }}
                               className="p-2 bg-primary/10 border border-primary/20 rounded-xl text-primary hover:bg-primary hover:text-white transition-all"
                               title="Send Pass">
                               <SendIcon className="w-4 h-4" />
@@ -3515,7 +3497,22 @@ const AdminDashboard = () => {
                       })()}
 
                       <div className="flex gap-3">
-                        <button onClick={() => { alert(`📧 Pass emailed to ${previewPass.email}`); setPreviewPass(null); }}
+                        <button onClick={async () => {
+                          const sendComm = httpsCallable(functions, 'sendOnboardingCommunication');
+                          try {
+                            const { data } = await sendComm({
+                              to: previewPass.email,
+                              name: previewPass.name,
+                              credentials: { email: previewPass.email, password: 'Use your existing login' },
+                              role: previewPass.role,
+                              channels: ['email']
+                            });
+                            alert(`✅ Pass notification sent to ${previewPass.email}\n${data.results?.email?.previewUrl ? '🔗 Preview: ' + data.results.email.previewUrl : ''}`);
+                            setPreviewPass(null);
+                          } catch (err) {
+                            alert('❌ Failed to send: ' + err.message);
+                          }
+                        }}
                           className="btn-primary px-6 py-2.5 flex items-center gap-2 text-sm">
                           <SendIcon className="w-4 h-4" /> Send to {previewPass.email}
                         </button>

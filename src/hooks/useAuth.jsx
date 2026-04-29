@@ -35,13 +35,8 @@ export const AuthProvider = ({ children }) => {
           }
         }
       } else {
-        const localUser = JSON.parse(localStorage.getItem('event_app_user'));
-        if (localUser && (localUser.email === 'akshay@indianroar.com' || localUser.uid === '+919220601860' || localUser.uid === '9220601860' || localUser.uid === 'akshay@indianroar.com')) {
-            setUser(localUser);
-        } else {
-            setUser(null);
-            localStorage.removeItem('event_app_user');
-        }
+        setUser(null);
+        localStorage.removeItem('event_app_user');
       }
       setLoading(false);
     });
